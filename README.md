@@ -1,4 +1,4 @@
-# 🌿 FarmLink — Next.js Startup
+# 🌿 Kisavi — Next.js Startup
 
 Farm-to-home vegetable delivery platform built with Next.js 14, MongoDB, NextAuth, Tailwind CSS.
 
@@ -37,6 +37,10 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=farmlink2025
+
+# Resend account emails (used when admin creates farmers or delivery partners)
+RESEND_API_KEY=re_xxxxxxxxx
+FARMLINK_FROM_EMAIL=Kisavi <notifications@example.com>
 ```
 
 ### 5. Run the app

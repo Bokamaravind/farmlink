@@ -58,9 +58,10 @@ export async function PUT(req) {
 
     // Update order as paid
     await connectDB()
+    const existingOrder = await Order.findOne({ orderId })
     const order = await Order.findOneAndUpdate(
       { orderId },
-      { paymentStatus: 'paid', paymentId: razorpayPaymentId, status: 'confirmed' },
+      { paymentStatus: existingOrder?.paymentMethod === 'cod' ? 'deposit_paid' : 'paid', paymentId: razorpayPaymentId, status: 'confirmed' },
       { new: true }
     )
 

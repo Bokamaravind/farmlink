@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import { getVegEmoji, formatCurrency, getInitials, STATUS_CONFIG, SERVICE_AREAS, CENTER_LOCATION } from '@/lib/utils'
+import { getVegEmoji, formatCurrency, calculateDeliveryFee, getFreeDeliveryMinimum, getInitials, STATUS_CONFIG, CENTER_LOCATION, DELIVERY_RADIUS_KM, SERVICE_AREA_NAME } from '@/lib/utils'
 
 // ── ICONS ─────────────────────────────────────────────────────────
 const HomeIcon = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
@@ -10,6 +10,13 @@ const TrackIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 const UserIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
 const PinIcon = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" /></svg>
 const StarIcon = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+
+function getFarmerCoordinates(farmer) {
+  return {
+    lat: Number(farmer?.location?.lat) || CENTER_LOCATION.lat,
+    lng: Number(farmer?.location?.lng) || CENTER_LOCATION.lng,
+  }
+}
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" width="18" height="18">
@@ -20,7 +27,6 @@ const GoogleIcon = () => (
   </svg>
 )
 
-// ── TOAST ─────────────────────────────────────────────────────────
 function useToast() {
   const [toasts, setToasts] = useState([])
   const add = useCallback((msg, type = 'default') => {
@@ -70,8 +76,11 @@ function FarmerCard({ farmer, onClick }) {
           </span>
         </div>
         <p className="text-gray-400 text-xs mb-3 flex items-center gap-1">
-          <span className="w-3 h-3"><PinIcon /></span>{farmer.region}
+          <span className="w-3 h-3"><PinIcon /></span>{farmer.address || farmer.region}
         </p>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {(farmer.availableSizes || ['small']).map(size => <span key={size} className="text-[10px] font-semibold uppercase bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{size}</span>)}
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {farmer.vegetables?.filter(v => v.available).slice(0, 4).map(v => (
             <span key={v._id} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-lg font-medium">
@@ -86,7 +95,7 @@ function FarmerCard({ farmer, onClick }) {
 }
 
 // ── GOOGLE MAPS TRACKER ───────────────────────────────────────────
-function MapTracker({ order, farmer }) {
+function MapTracker({ order, farmer, onCancel }) {
   const mapRef    = useRef(null)
   const mapObj    = useRef(null)
   const riderRef  = useRef(null)
@@ -124,11 +133,14 @@ function MapTracker({ order, farmer }) {
   function initMap() {
     if (!mapRef.current || !window.L || mapObj.current) return
 
-    // Center on Lankelapalem, Visakhapatnam
-    const CENTER = [17.7284, 83.2104]
+    const farmerLocation = getFarmerCoordinates(farmer)
+    const FARM = [farmerLocation.lat, farmerLocation.lng]
+    const CUSTOMER = order?.location?.lat && order?.location?.lng
+      ? [order.location.lat, order.location.lng]
+      : FARM
 
     mapObj.current = window.L.map(mapRef.current, {
-      center: CENTER,
+      center: FARM,
       zoom: 13,
       zoomControl: true,
       attributionControl: false,
@@ -146,7 +158,7 @@ function MapTracker({ order, farmer }) {
       iconAnchor: [18, 18],
       className: '',
     })
-    window.L.marker([17.72, 83.22], { icon: farmIcon })
+    window.L.marker(FARM, { icon: farmIcon })
       .addTo(mapObj.current)
       .bindPopup(`<b>${farmer?.name || 'Farm'}</b><br>${farmer?.region || ''}`)
 
@@ -157,7 +169,7 @@ function MapTracker({ order, farmer }) {
       iconAnchor: [18, 18],
       className: '',
     })
-    window.L.marker(CENTER, { icon: homeIcon })
+    window.L.marker(CUSTOMER, { icon: homeIcon })
       .addTo(mapObj.current)
       .bindPopup('<b>Your location</b>')
 
@@ -168,17 +180,17 @@ function MapTracker({ order, farmer }) {
       iconAnchor: [20, 20],
       className: '',
     })
-    riderRef.current = window.L.marker([17.72, 83.22], { icon: riderIcon })
+    riderRef.current = window.L.marker(FARM, { icon: riderIcon })
       .addTo(mapObj.current)
       .bindPopup('<b>Your delivery rider</b>')
 
     // Draw route line between farm and customer
     const routeCoords = [
-      [17.72,   83.22  ],  // farm
-      [17.724,  83.218 ],
-      [17.727,  83.215 ],
-      [17.730,  83.212 ],
-      [17.7284, 83.2104],  // customer (Lankelapalem center)
+      FARM,
+      [FARM[0] + 0.01, FARM[1] + 0.01],
+      [FARM[0] + 0.005, FARM[1] + 0.005],
+      [FARM[0] + 0.002, FARM[1] + 0.002],
+      CUSTOMER,
     ]
     window.L.polyline(routeCoords, {
       color: '#1a9e66',
@@ -186,6 +198,7 @@ function MapTracker({ order, farmer }) {
       opacity: 0.8,
       dashArray: '8, 8',
     }).addTo(mapObj.current)
+    mapObj.current.fitBounds([FARM, CUSTOMER], { padding: [30, 30] })
   }
 
   // Poll rider GPS location every 10 seconds
@@ -267,6 +280,10 @@ function MapTracker({ order, farmer }) {
             <span className="font-semibold text-gray-800">{farmer?.name} · {farmer?.region}</span>
           </div>
           <div className="flex justify-between text-sm">
+            <span className="text-gray-400 font-medium">Delivery partner</span>
+            <span className="font-semibold text-gray-800">{order?.deliveryPartnerName || 'Assigning rider'}{order?.deliveryPhone ? ` · ${order.deliveryPhone}` : ''}</span>
+          </div>
+          <div className="flex justify-between text-sm">
             <span className="text-gray-400 font-medium">Items</span>
             <span className="text-gray-500 text-xs text-right max-w-[60%]">
               {order?.items?.map(i => `${i.name} ×${i.qty}`).join(', ')}
@@ -282,6 +299,12 @@ function MapTracker({ order, farmer }) {
             <span className="text-gray-400 font-medium">Total</span>
             <span className="font-bold text-brand-600 text-base">{formatCurrency(order?.total)}</span>
           </div>
+          {['placed', 'confirmed'].includes(order?.status) && (
+            <button type="button" onClick={onCancel} className="w-full mt-2 border border-red-200 text-red-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-red-50">
+              Cancel order
+            </button>
+          )}
+          {order?.status === 'cancelled' && <p className="text-sm text-red-600 font-semibold">This order was cancelled.</p>}
         </div>
       </div>
 
@@ -321,6 +344,113 @@ function MapTracker({ order, farmer }) {
     </div>
   )
 }
+
+function DeliveryFeedback({ order, onSaved }) {
+  const [rating, setRating] = useState(order?.feedbackRating || 0)
+  const [comment, setComment] = useState(order?.feedbackComment || '')
+  const [saving, setSaving] = useState(false)
+  if (!order || order.status !== 'delivered' || order.feedbackRating) return null
+  async function submit() {
+    if (!rating) return
+    setSaving(true)
+    const res = await fetch('/api/orders', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: order.orderId, feedbackRating: rating, feedbackComment: comment }),
+    })
+    setSaving(false)
+    if (res.ok) onSaved?.({ ...order, feedbackRating: rating, feedbackComment: comment })
+  }
+  return (
+    <div className="card p-4">
+      <h3 className="font-bold">How was your delivery?</h3>
+      <div className="flex gap-2 my-3">{[1, 2, 3, 4, 5].map(value => <button key={value} onClick={() => setRating(value)} className={`text-2xl ${value <= rating ? 'text-amber-400' : 'text-gray-300'}`}>★</button>)}</div>
+      <textarea className="input mb-3" rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Tell us about the freshness and delivery" />
+      <button onClick={submit} disabled={!rating || saving} className="btn-brand w-full disabled:opacity-50">{saving ? 'Saving...' : 'Send feedback'}</button>
+    </div>
+  )
+}
+
+function AddressPicker({ address, onChange, onLocation, initialLocation }) {
+  const mapRef = useRef(null)
+  const mapObj = useRef(null)
+  const markerRef = useRef(null)
+
+  useEffect(() => {
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+    }
+    const init = () => {
+      if (!mapRef.current || !window.L || mapObj.current) return
+      mapObj.current = window.L.map(mapRef.current).setView([CENTER_LOCATION.lat, CENTER_LOCATION.lng], 13)
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapObj.current)
+      mapObj.current.on('click', event => setPin(event.latlng.lat, event.latlng.lng))
+      if (initialLocation?.lat && initialLocation?.lng) setPin(initialLocation.lat, initialLocation.lng)
+    }
+    if (window.L) init()
+    else {
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.onload = init
+      document.head.appendChild(script)
+    }
+    return () => { if (mapObj.current) { mapObj.current.remove(); mapObj.current = null } }
+  }, [])
+
+  async function reverseGeocode(lat, lng) {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`)
+      const data = await response.json()
+      const a = data.address || {}
+      onChange(prev => ({
+        ...prev,
+        street: [a.house_number, a.road].filter(Boolean).join(' ') || prev.street,
+        area: a.neighbourhood || a.suburb || a.village || a.town || a.city_district || prev.area,
+        city: a.city || a.town || a.municipality || a.city_district || a.state_district || prev.city,
+        pincode: a.postcode || prev.pincode,
+      }))
+    } catch (_) {}
+  }
+
+  function setPin(lat, lng) {
+    if (!mapObj.current || !window.L) return
+    if (markerRef.current) markerRef.current.setLatLng([lat, lng])
+    else markerRef.current = window.L.marker([lat, lng], { draggable: true }).addTo(mapObj.current)
+    markerRef.current.off('dragend').on('dragend', event => { const pos = event.target.getLatLng(); setPin(pos.lat, pos.lng) })
+    mapObj.current.setView([lat, lng], 16)
+    onLocation({ lat, lng })
+    reverseGeocode(lat, lng)
+  }
+
+  function useLocation() {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(({ coords }) => setPin(coords.latitude, coords.longitude), () => {})
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <input className="input" value={address.recipientName} onChange={e => onChange({ ...address, recipientName: e.target.value })} placeholder="Recipient name" />
+        <input className="input" value={address.flatHouse} onChange={e => onChange({ ...address, flatHouse: e.target.value })} placeholder="Flat / house no." />
+      </div>
+      <input className="input" value={address.street} onChange={e => onChange({ ...address, street: e.target.value })} placeholder="Street / road" />
+      <div className="grid grid-cols-2 gap-2">
+        <input className="input" value={address.landmark} onChange={e => onChange({ ...address, landmark: e.target.value })} placeholder="Landmark" />
+        <input className="input" value={address.area} onChange={e => onChange({ ...address, area: e.target.value })} placeholder="Area" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <input className="input" value={address.city} onChange={e => onChange({ ...address, city: e.target.value })} placeholder="City" />
+        <input className="input" value={address.pincode} onChange={e => onChange({ ...address, pincode: e.target.value })} placeholder="Pincode" inputMode="numeric" />
+      </div>
+      <button type="button" onClick={useLocation} className="btn-outline w-full">Use current location and fill address</button>
+      <div ref={mapRef} style={{ height: '210px', width: '100%', zIndex: 1 }} className="rounded-xl overflow-hidden" />
+      <p className="text-xs text-gray-400">Tap the map or drag the pin to fine-tune your delivery point.</p>
+    </div>
+  )
+}
 // ── AUTH SCREEN ───────────────────────────────────────────────────
 function AuthScreen() {
   const [tab, setTab] = useState('login')
@@ -356,7 +486,7 @@ function AuthScreen() {
         </div>
         <div className="relative">
           <div className="text-6xl mb-3">🌱</div>
-          <h1 className="text-3xl font-bold mb-2">FarmLink</h1>
+          <h1 className="text-3xl font-bold mb-2">Kisavi</h1>
           <p className="text-brand-100 text-sm">Farm-fresh vegetables, direct to your door</p>
           <div className="flex justify-center gap-3 mt-4 flex-wrap">
             {['No middlemen', 'Farm fresh', 'Best prices'].map(t => (
@@ -558,12 +688,12 @@ function CustomerProfile({ user, orders, onUpdate }) {
 }
 
 // ── RAZORPAY PAYMENT HANDLER ──────────────────────────────────────
-async function initiatePayment({ order, user, onSuccess, onFail }) {
+async function initiatePayment({ order, user, amount = order.total, onSuccess, onFail }) {
   try {
     // 1. Create Razorpay order on backend
     const res = await fetch('/api/payment', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: order.total, orderId: order.orderId }),
+      body: JSON.stringify({ amount, orderId: order.orderId }),
     })
     const rzp = await res.json()
     if (!rzp.rzpOrderId) throw new Error('Failed to create payment order')
@@ -573,7 +703,7 @@ async function initiatePayment({ order, user, onSuccess, onFail }) {
       key: rzp.keyId,
       amount: rzp.amount,
       currency: rzp.currency,
-      name: 'FarmLink',
+      name: 'Kisavi',
       description: `Order ${order.orderId}`,
       order_id: rzp.rzpOrderId,
       prefill: {
@@ -621,12 +751,62 @@ export default function CustomerApp() {
   const [search, setSearch] = useState('')
   const [stockWarning, setStockWarning] = useState('')
   const [loading, setLoading] = useState(true)
- const [selectedArea, setSelectedArea] = useState('')
-const [showAreaPicker, setShowAreaPicker] = useState(false)
-   const [placing, setPlacing] = useState(false)
+  const [customerLocation, setCustomerLocation] = useState(null)
+  const [locationStatus, setLocationStatus] = useState('idle')
+  const [addressFields, setAddressFields] = useState({
+    recipientName: '', flatHouse: '', street: '', landmark: '', area: SERVICE_AREA_NAME, city: 'Visakhapatnam', pincode: '',
+  })
+  const [savedAddresses, setSavedAddresses] = useState([])
+  const [selectedAddressId, setSelectedAddressId] = useState('')
+  const [savingAddress, setSavingAddress] = useState(false)
+  const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [selectedSize, setSelectedSize] = useState('small')
+  const [paymentMethod, setPaymentMethod] = useState('online')
+  const [placing, setPlacing] = useState(false)
+  const [showFreeDelivery, setShowFreeDelivery] = useState(false)
 
   const isLoggedIn = status === 'authenticated' && session?.user?.role === 'customer'
   const user = session?.user
+
+  useEffect(() => {
+    if (user?.name) setAddressFields(fields => ({ ...fields, recipientName: user.name }))
+  }, [user?.name])
+
+  useEffect(() => {
+    if (!isLoggedIn || !user?.id) return
+    fetch(`/api/customers/${user.id}`).then(response => response.json()).then(customer => {
+      const addresses = customer.savedAddresses || []
+      setSavedAddresses(addresses)
+      const defaultAddress = addresses.at(-1)
+      if (defaultAddress?._id) {
+        selectSavedAddress(defaultAddress._id)
+      }
+    }).catch(() => {})
+  }, [isLoggedIn, user?.id])
+
+  useEffect(() => {
+    const value = [addressFields.recipientName, addressFields.flatHouse, addressFields.street, addressFields.landmark, addressFields.area, addressFields.city, addressFields.pincode].filter(Boolean).join(', ')
+    setDeliveryAddress(value)
+  }, [addressFields])
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) { setLocationStatus('unsupported'); return }
+    setLocationStatus('loading')
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const distance = haversine(CENTER_LOCATION.lat, CENTER_LOCATION.lng, coords.latitude, coords.longitude)
+        if (distance > DELIVERY_RADIUS_KM) {
+          setLocationStatus('outside')
+          setCustomerLocation(null)
+          return
+        }
+        setCustomerLocation({ lat: coords.latitude, lng: coords.longitude, distanceKm: distance })
+        setLocationStatus('ready')
+      },
+      () => setLocationStatus('denied'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
 
   // Load Razorpay script
   useEffect(() => {
@@ -644,16 +824,33 @@ const [showAreaPicker, setShowAreaPicker] = useState(false)
     if (!isLoggedIn || !user?.id) return
     fetch(`/api/orders?customerId=${user.id}`).then(r => r.json()).then(data => {
       setOrders(data)
-      const live = data.find(o => !['delivered', 'cancelled'].includes(o.status))
-      if (live) {
-        setActiveOrder(live)
-        fetch(`/api/farmers/${live.farmerId}`).then(r => r.json()).then(f => setActiveFarmer(f)).catch(() => { })
+      const current = data.find(o => !['delivered', 'cancelled'].includes(o.status)) || data[0]
+      if (current) {
+        setActiveOrder(current)
+        fetch(`/api/farmers/${current.farmerId}`).then(r => r.json()).then(f => setActiveFarmer(f)).catch(() => { })
       }
     }).catch(() => { })
   }, [isLoggedIn, user?.id])
 
+  useEffect(() => {
+    if (!isLoggedIn || !user?.id) return
+    const refreshLiveOrder = async () => {
+      try {
+        const data = await fetch(`/api/orders?customerId=${user.id}`).then(r => r.json())
+        setOrders(data)
+        const refreshed = activeOrder?.orderId && data.find(o => o.orderId === activeOrder.orderId)
+        const live = data.find(o => !['delivered', 'cancelled'].includes(o.status))
+        if (refreshed) setActiveOrder(refreshed)
+        else if (live) setActiveOrder(live)
+      } catch (_) {}
+    }
+    const id = setInterval(refreshLiveOrder, 10000)
+    return () => clearInterval(id)
+  }, [isLoggedIn, user?.id, activeOrder?.orderId])
+
   // Cart helpers
   const cartFarmerId = Object.keys(cart).find(fid => Object.keys(cart[fid] || {}).length > 0)
+  const cartFarmer = farmers.find(farmer => farmer.farmerId === cartFarmerId)
   const cartCount = Object.values(cart).reduce((s, m) => s + Object.values(m).reduce((a, b) => a + b, 0), 0)
   function getQty(fid, vid) { return cart[fid]?.[vid] || 0 }
   function changeQty(fid, vid, delta) {
@@ -687,9 +884,9 @@ const [showAreaPicker, setShowAreaPicker] = useState(false)
     })
   }
 
-  const platformFee = 15
+  const platformFee = 0
+  const platformCommission = Math.round(subtotal * 0.05)
 
-  // Compute delivery fee based on straight-line distance between farmer area and selected area
   function haversine(lat1, lon1, lat2, lon2) {
     const toRad = d => d * Math.PI / 180
     const R = 6371 // km
@@ -700,74 +897,100 @@ const [showAreaPicker, setShowAreaPicker] = useState(false)
     return R * c
   }
 
-  const normalize = str => (str || '').toString().trim().toLowerCase()
-  let distanceKm = null
-  let deliveryFee = 25
-  if (cartFarmerId && selectedArea) {
-    const farmer = farmers.find(x => x.farmerId === cartFarmerId)
-    const farmerRegionStr = normalize(farmer?.region)
-    const farmerAddressStr = normalize(farmer?.address)
-    const customerStr = normalize(selectedArea)
-
-    const farmerArea = SERVICE_AREAS.find(a => {
-      const areaName = normalize(a.name)
-      const areaLabel = normalize(a.label)
-      return areaName === farmerRegionStr ||
-        farmerRegionStr.includes(areaName) ||
-        areaName.includes(farmerRegionStr) ||
-        farmerAddressStr.includes(areaName) ||
-        areaLabel === farmerRegionStr ||
-        farmerRegionStr.includes(areaLabel) ||
-        areaLabel.includes(farmerRegionStr)
-    })
-
-    const customerArea = SERVICE_AREAS.find(a => {
-      const areaName = normalize(a.name)
-      const areaLabel = normalize(a.label)
-      return areaName === customerStr ||
-        customerStr.includes(areaName) ||
-        areaName.includes(customerStr) ||
-        areaLabel === customerStr ||
-        customerStr.includes(areaLabel) ||
-        areaLabel.includes(customerStr)
-    })
-
-    if (farmerArea && customerArea) {
-      const distKm = haversine(farmerArea.lat, farmerArea.lng, customerArea.lat, customerArea.lng)
-      distanceKm = distKm
-      // Pricing rule: baseline ₹25, then ₹10 per km (rounded up to next km), capped at ₹80
-      const perKmRate = 10
-      deliveryFee = Math.min(80, Math.max(25, Math.ceil(distKm) * perKmRate))
-    }
-  }
+  const farmerCoordinates = getFarmerCoordinates(cartFarmer)
+  const distanceKm = customerLocation
+    ? haversine(farmerCoordinates.lat, farmerCoordinates.lng, customerLocation.lat, customerLocation.lng)
+    : null
+  const freeDeliveryMinimum = getFreeDeliveryMinimum(selectedSize)
+  const deliveryFee = calculateDeliveryFee(distanceKm, subtotal, selectedSize)
 
   const total = subtotal + platformFee + deliveryFee
 
+  async function saveCurrentAddress() {
+    if (!addressFields.recipientName || !addressFields.flatHouse || !addressFields.street || !addressFields.area || !addressFields.city || !customerLocation) {
+      addToast('Complete the address and select a map pin first', 'error')
+      return
+    }
+    setSavingAddress(true)
+    const current = {
+      label: addressFields.landmark || addressFields.area || 'Address',
+      ...addressFields,
+      location: { lat: customerLocation.lat, lng: customerLocation.lng },
+    }
+    const nextAddresses = selectedAddressId
+      ? savedAddresses.map(address => address._id === selectedAddressId ? { ...current, _id: selectedAddressId } : address)
+      : [...savedAddresses, current]
+    const response = await fetch(`/api/customers/${user.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ savedAddresses: nextAddresses }),
+    })
+    const data = await response.json()
+    setSavingAddress(false)
+    if (!response.ok) { addToast(data.error || 'Could not save address', 'error'); return }
+    setSavedAddresses(data.savedAddresses || nextAddresses)
+    const saved = (data.savedAddresses || nextAddresses).at(-1)
+    if (!selectedAddressId && saved?._id) setSelectedAddressId(saved._id)
+    addToast(selectedAddressId ? 'Address updated' : 'Address saved', 'success')
+  }
+
+  function selectSavedAddress(addressId) {
+    if (!addressId) {
+      setSelectedAddressId('')
+      setCustomerLocation(null)
+      setLocationStatus('idle')
+      setAddressFields({ recipientName: user?.name || '', flatHouse: '', street: '', landmark: '', area: SERVICE_AREA_NAME, city: 'Visakhapatnam', pincode: '' })
+      return
+    }
+    const saved = savedAddresses.find(address => address._id === addressId)
+    if (!saved) return
+    setSelectedAddressId(addressId)
+    setAddressFields({ recipientName: saved.recipientName || user?.name || '', flatHouse: saved.flatHouse || '', street: saved.street || '', landmark: saved.landmark || '', area: saved.area || '', city: saved.city || '', pincode: saved.pincode || '' })
+    if (saved.location?.lat && saved.location?.lng) {
+      const distance = haversine(getFarmerCoordinates(cartFarmer).lat, getFarmerCoordinates(cartFarmer).lng, saved.location.lat, saved.location.lng)
+      setCustomerLocation({ lat: saved.location.lat, lng: saved.location.lng, distanceKm: distance })
+      const serviceDistance = haversine(CENTER_LOCATION.lat, CENTER_LOCATION.lng, saved.location.lat, saved.location.lng)
+      setLocationStatus(serviceDistance <= DELIVERY_RADIUS_KM ? 'ready' : 'outside')
+    }
+  }
+
+  useEffect(() => {
+    if (subtotal < freeDeliveryMinimum) {
+      setShowFreeDelivery(false)
+      return
+    }
+    setShowFreeDelivery(true)
+    const timeout = setTimeout(() => setShowFreeDelivery(false), 2600)
+    return () => clearTimeout(timeout)
+  }, [subtotal >= freeDeliveryMinimum, freeDeliveryMinimum])
+
   async function placeOrder() {
    if (!isLoggedIn) { addToast('Please login first', 'error'); return }
-if (!selectedArea) { addToast('Please select your delivery area first', 'error'); setShowAreaPicker(true); return }
-if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'error'); return }
+  if (locationStatus !== 'ready') { addToast(`Allow current location to confirm ${SERVICE_AREA_NAME} delivery`, 'error'); return }
+  if (subtotal < 150) { addToast(`Add ${formatCurrency(150 - subtotal)} more to reach the minimum order`, 'error'); return }
+  if (!addressFields.recipientName || !addressFields.flatHouse || !addressFields.street || !addressFields.area || !addressFields.city) { addToast('Complete your delivery address first', 'error'); return }
     setPlacing(true)
     try {
       const f = farmers.find(x => x.farmerId === cartFarmerId)
       const res = await fetch('/api/orders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: user.id, customerName: user.name, customerPhone: user.phone || '',
+          customerId: user.id, customerName: user.name, customerPhone: user.phone || '', customerEmail: user.email || '',
           farmerId: cartFarmerId, items: cartItems.map(i => ({ name: i.name, qty: i.qty, unit: i.unit, price: i.price })),
-          subtotal, platformFee, deliveryFee, address: selectedArea + ', Visakhapatnam',
-          paymentStatus: 'pending',
+          subtotal, platformFee, platformCommission, deliveryFee, distanceKm, pack: selectedSize, paymentMethod,
+          location: { lat: customerLocation.lat, lng: customerLocation.lng },
+          address: deliveryAddress, deliveryAddress: addressFields, paymentStatus: 'pending',
         }),
       })
       const order = await res.json()
       setPlacing(false)
       // Open Razorpay
       initiatePayment({
-        order, user,
+        order, user, amount: paymentMethod === 'cod' ? order.depositAmount : order.total,
         onSuccess: async (paymentId) => {
           addToast('Payment successful! Order confirmed 🎉', 'success')
-          setCart({}); setActiveOrder({ ...order, paymentStatus: 'paid', status: 'confirmed' }); setActiveFarmer(f)
-          setOrders(prev => [{ ...order, paymentStatus: 'paid', status: 'confirmed' }, ...prev])
+          const paymentStatus = paymentMethod === 'cod' ? 'deposit_paid' : 'paid'
+          setCart({}); setActiveOrder({ ...order, paymentStatus, status: 'confirmed' }); setActiveFarmer(f)
+          setOrders(prev => [{ ...order, paymentStatus, status: 'confirmed' }, ...prev])
           setTab('track')
           fetch('/api/farmers').then(r => r.json()).then(data => setFarmers(data))
         },
@@ -787,6 +1010,7 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
       f.region.toLowerCase().includes(search.toLowerCase()) ||
       f.vegetables?.some(v => v.name.toLowerCase().includes(search.toLowerCase())))
   )
+  const sizeFarmers = filteredFarmers.filter(f => (f.availableSizes || ['small']).includes(selectedSize))
 
   if (status === 'loading') return <div className="min-h-screen flex items-center justify-center bg-brand-50"><div className="text-5xl animate-bounce">🌱</div></div>
   if (!isLoggedIn) return <AuthScreen />
@@ -798,10 +1022,10 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-brand-200 text-xs">Delivering to</p>
-            <div onClick={() => setShowAreaPicker(true)} className="flex items-center gap-1 font-bold text-sm cursor-pointer">
+            <div onClick={() => setTab('cart')} className="flex items-center gap-1 font-bold text-sm cursor-pointer">
               <span className="w-4 h-4"><PinIcon /></span>
-              {selectedArea || 'Select your area'}
-              <span className="text-brand-300 text-xs ml-1">▾</span>
+              {locationStatus === 'ready' ? `${SERVICE_AREA_NAME} · within ${DELIVERY_RADIUS_KM} km` : 'Set delivery location'}
+              <span className="text-brand-300 text-xs ml-1">›</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -829,33 +1053,22 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
         {/* HOME */}
         {tab === 'home' && (
           <div className="px-4 py-4 space-y-3">
-           {/* Area selector prompt if not selected */}
-{!selectedArea && (
-  <div onClick={() => setShowAreaPicker(true)}
-    className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 flex items-center gap-3 cursor-pointer">
-    <span className="text-3xl">📍</span>
-    <div>
-      <p className="font-bold text-amber-800">Select your area to order</p>
-      <p className="text-xs text-amber-600 mt-0.5">Lankelapalem · Kurmannapalem · Anakapalli · Paravada</p>
-    </div>
-    <span className="ml-auto text-amber-500 text-lg">›</span>
-  </div>
-)}
-
-{/* Selected area + promo banner */}
-{selectedArea && (
-  <div className="bg-gradient-to-r from-brand-600 to-emerald-500 rounded-2xl p-4 text-white relative overflow-hidden">
-    <p className="text-xs font-semibold text-brand-100 mb-1">
-      📍 Delivering to {selectedArea}
-    </p>
-    <h2 className="text-lg font-bold">Free delivery on orders<br/>above ₹400 🎉</h2>
-    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-5xl opacity-20">🥬</div>
-  </div>
-)}
-            <h2 className="font-bold text-gray-800">Nearby Farms</h2>
+            <div className="bg-gradient-to-r from-brand-700 to-emerald-500 rounded-2xl p-4 text-white relative overflow-hidden">
+              <p className="text-xs font-semibold text-brand-100 mb-1">📍 Fresh produce around {SERVICE_AREA_NAME}</p>
+              <h2 className="text-lg font-bold">Free delivery on {selectedSize}<br />orders of {formatCurrency(getFreeDeliveryMinimum(selectedSize))} and above</h2>
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-5xl opacity-20">🥬</div>
+            </div>
+            <div className="card p-3">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Choose your farmer size</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[['small', 'Small', '₹199'], ['medium', 'Medium', '₹399'], ['large', 'Large', '₹599']].map(([id, label, amount]) => <button key={id} onClick={() => setSelectedSize(id)} className={`p-3 rounded-xl border-2 text-left ${selectedSize === id ? 'border-brand-500 bg-brand-50' : 'border-gray-100'}`}><span className="block font-bold">{label}</span><span className="text-xs text-gray-500">{amount} plan</span></button>)}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Showing farmers who supply {selectedSize} orders. Some farmers appear in multiple tabs.</p>
+            </div>
+            <h2 className="font-bold text-gray-800">{selectedSize[0].toUpperCase() + selectedSize.slice(1)} Farmers</h2>
             {loading ? [1, 2, 3].map(i => <div key={i} className="skeleton h-44 rounded-2xl" />)
-              : filteredFarmers.length === 0 ? <div className="text-center py-12 text-gray-400"><div className="text-5xl mb-3">👨‍🌾</div><p>No farms found</p></div>
-                : filteredFarmers.map(f => <FarmerCard key={f._id} farmer={f} onClick={() => { setSelFarmer(f); setTab('farmer') }} />)
+              : sizeFarmers.length === 0 ? <div className="text-center py-12 text-gray-400"><div className="text-5xl mb-3">👨‍🌾</div><p>No {selectedSize} farmers found</p><p className="text-xs mt-1">Ask a farmer to enable this size in the Farmer panel.</p></div>
+                : sizeFarmers.map(f => <FarmerCard key={f._id} farmer={f} onClick={() => { setSelFarmer(f); setTab('farmer') }} />)
             }
           </div>
         )}
@@ -869,7 +1082,7 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
                 <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-bold">{getInitials(selFarmer.name)}</div>
                 <div>
                   <h2 className="text-lg font-bold">{selFarmer.name}'s Farm</h2>
-                  <p className="text-brand-200 text-xs mt-0.5">📍 {selFarmer.region} · ★ {selFarmer.rating?.toFixed(1)}</p>
+                  <p className="text-brand-200 text-xs mt-0.5">📍 {selFarmer.address || selFarmer.region} · ★ {selFarmer.rating?.toFixed(1)}</p>
                 </div>
               </div>
             </div>
@@ -927,115 +1140,58 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
                     </div>
                   ))}
                 </div>
-                {/* Bill Details — only shown when items exist */}
-
-  <div className="card p-4 mb-4">
-  <h3 className="font-bold mb-3">Bill Details</h3>
-  <div className="space-y-2 text-sm">
-
-    {/* Items subtotal */}
-    <div className="flex justify-between">
-      <span className="text-gray-500">Item total ({cartItems.length} item{cartItems.length > 1 ? 's' : ''})</span>
-      <span className="font-medium">{formatCurrency(subtotal)}</span>
-    </div>
-
-    {/* Fees only added when minimum order met */}
-    {subtotal >= 300 ? (
-      <>
-        <div className="flex justify-between">
-          <span className="text-gray-500">Distance</span>
-          <span className="font-medium">{distanceKm ? `${distanceKm.toFixed(1)} km` : '—'}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-500">Delivery fee</span>
-          <span className="font-medium">{formatCurrency(deliveryFee)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-500">Platform fee</span>
-          <span className="font-medium">{formatCurrency(platformFee)}</span>
-        </div>
-        <div className="border-t border-dashed border-gray-200 pt-2 mt-2 flex justify-between font-bold text-base">
-          <span>To pay</span>
-          <span className="text-brand-600">{formatCurrency(total)}</span>
-        </div>
-      </>
-    ) : (
-      <>
-        {/* Show fee info but greyed out until minimum met */}
-        <div className="flex justify-between text-gray-300">
-          <span>Distance</span>
-          <span>{distanceKm ? `${distanceKm.toFixed(1)} km` : '—'}</span>
-        </div>
-        <div className="flex justify-between text-gray-300">
-          <span>Delivery fee</span>
-          <span>{formatCurrency(deliveryFee)}</span>
-        </div>
-        <div className="flex justify-between text-gray-300">
-          <span>Platform fee</span>
-          <span>{formatCurrency(platformFee)}</span>
-        </div>
-        <div className="border-t border-dashed border-gray-200 pt-2 mt-2 flex justify-between font-bold text-base">
-          <span>Item total</span>
-          <span className="text-gray-500">{formatCurrency(subtotal)}</span>
-        </div>
-      </>
-    )}
-  </div>
-</div>
-
-{/* Minimum order disclaimer */}
-<div className={`rounded-2xl p-4 mb-4 ${subtotal >= 300 ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
-  {subtotal >= 300 ? (
-    <div className="flex items-center gap-2">
-      <span className="text-xl">✅</span>
-      <div>
-        <p className="font-semibold text-green-700 text-sm">Minimum order met!</p>
-        <p className="text-green-600 text-xs mt-0.5">Your order is ready to checkout</p>
-      </div>
-    </div>
-  ) : (
-    <div className="flex items-start gap-2">
-      <span className="text-xl">⚠️</span>
-      <div>
-        <p className="font-semibold text-amber-700 text-sm">Minimum order is ₹300</p>
-        <p className="text-amber-600 text-xs mt-0.5">
-          Add {formatCurrency(300 - subtotal)} more to checkout. Delivery and platform fees will be added after.
-        </p>
-        {/* Progress bar */}
-        <div className="mt-2 h-2 bg-amber-200 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-amber-500 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min((subtotal / 300) * 100, 100)}%` }}
-          />
-        </div>
-        <p className="text-amber-500 text-xs mt-1">
-          {Math.round((subtotal / 300) * 100)}% of minimum order
-        </p>
-      </div>
-    </div>
-  )}
-</div>
-
-{/* Checkout button */}
-<button
-  onClick={placeOrder}
-  disabled={placing || subtotal < 300}
-  className="btn-brand w-full disabled:opacity-50 disabled:cursor-not-allowed"
->
-  {placing
-    ? 'Processing…'
-    : subtotal < 300
-    ? `Add ₹${300 - subtotal} more to checkout`
-    : `Pay ${formatCurrency(total)} via Razorpay`
-  }
-</button>
-
-{/* Payment info */}
-{subtotal >= 300 && (
-  <p className="text-center text-xs text-gray-400 mt-2">
-    🔒 Secure payment · UPI · Cards · NetBanking
-  </p>
-)}
+                {showFreeDelivery && subtotal >= freeDeliveryMinimum && (
+                  <div className="free-delivery-celebration" role="status">
+                    <span className="free-delivery-spark">✦</span>
+                    <div>
+                      <p className="font-bold text-brand-700">Congratulations!</p>
+                      <p className="text-xs text-brand-600">You unlocked free delivery</p>
+                    </div>
+                    <span className="free-delivery-spark">✦</span>
+                  </div>
+                )}
+                <div className="card p-4 mb-4 space-y-3">
+                  <h3 className="font-bold">Delivery details</h3>
+                  {savedAddresses.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Saved addresses</label>
+                      <select className="input" value={selectedAddressId} onChange={e => selectSavedAddress(e.target.value)}>
+                        <option value="">Use a new address</option>
+                        {savedAddresses.map(address => <option key={address._id} value={address._id}>{address.label || address.area} · {address.street}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <AddressPicker key={selectedAddressId || 'new'} address={addressFields} initialLocation={customerLocation} onChange={setAddressFields} onLocation={({ lat, lng }) => {
+                    const distance = haversine(farmerCoordinates.lat, farmerCoordinates.lng, lat, lng)
+                    setCustomerLocation({ lat, lng, distanceKm: distance })
+                    const serviceDistance = haversine(CENTER_LOCATION.lat, CENTER_LOCATION.lng, lat, lng)
+                    setLocationStatus(serviceDistance <= DELIVERY_RADIUS_KM ? 'ready' : 'outside')
+                  }} />
+                  <button type="button" onClick={saveCurrentAddress} disabled={savingAddress} className="btn-outline w-full disabled:opacity-50">
+                    {savingAddress ? 'Saving address...' : selectedAddressId ? 'Update saved address' : 'Save this address'}
+                  </button>
+                  {locationStatus === 'outside' && <p className="text-xs text-red-600">This address is outside our {DELIVERY_RADIUS_KM} km {SERVICE_AREA_NAME} delivery radius.</p>}
+                  {locationStatus === 'denied' && <p className="text-xs text-amber-600">Location permission is needed to confirm delivery.</p>}
+                </div>
+                <div className="card p-4 mb-4">
+                  <h3 className="font-bold mb-3">Bill details</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-500">Items</span><span>{formatCurrency(subtotal)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Distance</span><span>{distanceKm ? `${distanceKm.toFixed(1)} km` : 'Confirm location'}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Delivery fee</span><span className={deliveryFee === 0 ? 'text-brand-600 font-semibold' : ''}>{deliveryFee === null ? 'Confirm location' : deliveryFee === 0 ? <><span className="text-gray-400 line-through mr-1">{formatCurrency(calculateDeliveryFee(distanceKm, 0, selectedSize))}</span>FREE</> : formatCurrency(deliveryFee)}</span></div>
+                    <div className="border-t border-dashed border-gray-200 pt-2 flex justify-between font-bold text-base"><span>Total</span><span className="text-brand-600">{formatCurrency(total)}</span></div>
+                  </div>
+                </div>
+                <div className="card p-4 mb-4">
+                  <h3 className="font-bold mb-3">Payment</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setPaymentMethod('online')} className={`p-3 rounded-xl border-2 text-left ${paymentMethod === 'online' ? 'border-brand-500 bg-brand-50' : 'border-gray-100'}`}><b>UPI / Online</b><span className="block text-xs text-gray-500">Pay securely now</span></button>
+                    <button onClick={() => setPaymentMethod('cod')} className={`p-3 rounded-xl border-2 text-left ${paymentMethod === 'cod' ? 'border-brand-500 bg-brand-50' : 'border-gray-100'}`}><b>Cash on delivery</b><span className="block text-xs text-gray-500">20% deposit required</span></button>
+                  </div>
+                  {paymentMethod === 'cod' && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-2 mt-2">Pay {formatCurrency(Math.ceil(total * 0.2))} now. This deposit is non-refundable if cancelled after pickup.</p>}
+                </div>
+                <button onClick={placeOrder} disabled={placing} className="btn-brand w-full disabled:opacity-50">{placing ? 'Processing...' : paymentMethod === 'cod' ? `Pay ${formatCurrency(Math.ceil(total * 0.2))} deposit` : `Pay ${formatCurrency(total)} via UPI`}</button>
+                <p className="text-center text-xs text-gray-400 mt-2">Minimum order ₹150 · Delivery fee depends on distance · Free above {formatCurrency(freeDeliveryMinimum)}</p>
               </>
             )}
           </div>
@@ -1045,7 +1201,15 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
         {tab === 'track' && (
           <div className="px-4 py-4">
             <h2 className="font-bold text-lg mb-4">Track Order</h2>
-            {activeOrder ? <MapTracker order={activeOrder} farmer={activeFarmer} /> : (
+            {activeOrder ? <><MapTracker order={activeOrder} farmer={activeFarmer} onCancel={async () => {
+              if (!window.confirm('Cancel this order?')) return
+              const response = await fetch('/api/orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: activeOrder.orderId, status: 'cancelled' }) })
+              const data = await response.json()
+              if (!response.ok) { addToast(data.error || 'Unable to cancel order', 'error'); return }
+              setActiveOrder(data)
+              setOrders(previous => previous.map(order => order.orderId === data.orderId ? data : order))
+              addToast('Order cancelled', 'success')
+            }} /><DeliveryFeedback order={activeOrder} onSaved={setActiveOrder} /></> : (
               <div className="text-center py-16"><div className="text-6xl mb-4">🚚</div><p className="text-gray-500">No active order</p></div>
             )}
           </div>
@@ -1098,40 +1262,6 @@ if (subtotal < 300) { addToast(`Add ₹${300 - subtotal} more (min ₹300)`, 'er
         </div>
       )}
     
-    {/* AREA PICKER MODAL */}
-{showAreaPicker && (
-  <div className="fixed inset-0 z-50 flex items-end justify-center">
-    <div className="absolute inset-0 bg-black/50" onClick={() => setShowAreaPicker(false)}/>
-    <div className="relative bg-white w-full max-w-md rounded-t-3xl p-6 z-10">
-      <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-5"/>
-      <h3 className="font-bold text-lg mb-1">Select your delivery area</h3>
-      <p className="text-gray-400 text-sm mb-5">We currently deliver in these areas near Visakhapatnam</p>
-      <div className="space-y-2">
-        {SERVICE_AREAS.map(area => (
-          <button key={area.name}
-            onClick={() => { setSelectedArea(area.name); setShowAreaPicker(false) }}
-            className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left
-              ${selectedArea === area.name
-                ? 'border-brand-500 bg-brand-50'
-                : 'border-gray-100 hover:border-brand-200'
-              }`}>
-            <span className="text-2xl">📍</span>
-            <div>
-              <p className="font-bold text-gray-900">{area.label}</p>
-              <p className="text-xs text-gray-400 mt-0.5">Available for delivery</p>
-            </div>
-            {selectedArea === area.name && <span className="ml-auto text-brand-500 font-bold text-lg">✓</span>}
-          </button>
-        ))}
-      </div>
-      <div className="mt-4 p-3 bg-amber-50 rounded-xl">
-        <p className="text-xs text-amber-700 font-medium text-center">
-          🚧 Expanding soon to more areas of Visakhapatnam!
-        </p>
-      </div>
-    </div>
-  </div>
-)}
       {/* Toasts */}
       <div className="toast-container">
         {toasts.map(t => <div key={t.id} className={`toast ${t.type}`}>{t.msg}</div>)}

@@ -1,4 +1,4 @@
-# 🔧 FarmLink Setup Guide — Fix All Errors
+# 🔧 Kisavi Setup Guide — Fix All Errors
 
 ---
 
@@ -101,8 +101,22 @@ Open: http://localhost:3000
 2. Console → Messaging → Try it out → Send a WhatsApp message
 3. Follow the sandbox join instructions
 4. Copy Account SID and Auth Token into `.env.local`
-5. Farmers get WhatsApp when a customer places an order
-6. Customers get WhatsApp on every status change
+5. Farmers and customers get WhatsApp when a customer places an order
+6. Every active delivery partner gets a WhatsApp offer for new confirmed orders
+7. Customers, farmers, and the assigned delivery partner get WhatsApp after delivery
+
+## ✉️ Email Notifications (Resend)
+
+1. Create an API key at [resend.com](https://resend.com)
+2. Add these values to `.env.local`:
+   ```
+   RESEND_API_KEY=re_xxxxxxxxx
+   FARMLINK_FROM_EMAIL=Kisavi <notifications@your-verified-domain.com>
+   FARMLINK_SUPPORT_PHONE=+91xxxxxxxxxx
+   ```
+3. Verify the sender domain in Resend before using a production address.
+
+Customers, farmers, and delivery partners must have email addresses saved in their profiles for email notifications.
 
 ---
 
@@ -131,7 +145,7 @@ vercel
 When prompted, add all `.env.local` values as environment variables.
 
 After deploy, update:
-- `NEXTAUTH_URL` → your Vercel URL (e.g. `https://farmlink.vercel.app`)
+- `NEXTAUTH_URL` → your Vercel URL (e.g. `https://kisavi.vercel.app`)
 - Google OAuth redirect URI → `https://farmlink.vercel.app/api/auth/callback/google`
 - Razorpay webhook URL → `https://farmlink.vercel.app/api/payment`
 

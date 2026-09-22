@@ -3,6 +3,13 @@ import { connectDB } from '@/lib/mongodb'
 import Customer from '@/models/Customer'
 import bcrypt from 'bcryptjs'
 
+export async function GET(req, { params }) {
+  await connectDB()
+  const customer = await Customer.findById(params.id, '-password')
+  if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(customer)
+}
+
 export async function PATCH(req, { params }) {
   await connectDB()
   const body = await req.json()

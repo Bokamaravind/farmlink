@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import DeliveryPartner from '@/models/DeliveryPartner'
 import bcrypt from 'bcryptjs'
+import { sendAccountEmail } from '@/lib/email'
 
 export async function GET() {
   await connectDB()
@@ -15,7 +16,12 @@ export async function POST(req) {
   const count = await DeliveryPartner.countDocuments()
   const partnerId = 'DL-' + String(count + 1).padStart(3, '0')
   const hashedPass = await bcrypt.hash(body.password, 10)
-  const partner = await DeliveryPartner.create({ ...body, partnerId, password: hashedPass })
+  const partner = await DeliveryPartner.create({ ...body, region: 'Lankelapalem', partnerId, password: hashedPass })
+  try {
+    await sendAccountEmail({ email: body.email, name: body.name, accountType: 'delivery', accountId: partnerId, password: body.password, loginUrl: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/delivery` })
+  } catch (error) {
+    console.error('Delivery partner account email failed:', error)
+  }
   const obj = partner.toObject()
   delete obj.password
   return NextResponse.json({ ...obj, plainPassword: body.password, partnerId }, { status: 201 })

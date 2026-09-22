@@ -36,13 +36,14 @@ export async function GET(req) {
 
     if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 })
 
-    const order = await Order.findOne({ orderId }, 'liveLocation status deliveryPartnerName')
+    const order = await Order.findOne({ orderId }, 'liveLocation status deliveryPartnerName deliveryPhone')
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
     return NextResponse.json({
       location: order.liveLocation,
       status:   order.status,
       rider:    order.deliveryPartnerName,
+      phone:    order.deliveryPhone,
     })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })

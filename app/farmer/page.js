@@ -4,6 +4,11 @@ import { useSession, signIn, signOut } from 'next-auth/react'
 import { getVegEmoji, formatCurrency, getInitials, STATUS_CONFIG } from '@/lib/utils'
 
 const UNITS = ['kg', 'bunch', 'piece', '250g', '500g']
+const FARMER_SIZES = [
+  { id: 'small', label: 'Small', amount: '₹199' },
+  { id: 'medium', label: 'Medium', amount: '₹399' },
+  { id: 'large', label: 'Large', amount: '₹599' },
+]
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null
@@ -37,15 +42,17 @@ function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
   const [form,    setForm]    = useState({
     name:     farmer?.name    || '',
     phone:    farmer?.phone   || '',
+    email:    farmer?.email   || '',
     region:   farmer?.region  || '',
     address:  farmer?.address || '',
+    availableSizes: farmer?.availableSizes?.length ? farmer.availableSizes : ['small'],
     password: '',
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   async function save() {
     setSaving(true); setMsg('')
-    const body = { name: form.name, phone: form.phone, region: form.region, address: form.address }
+    const body = { name: form.name, phone: form.phone, email: form.email, region: form.region, address: form.address, availableSizes: form.availableSizes }
     if (form.password) {
       if (form.password.length < 6) { setMsg('Password must be at least 6 characters'); setSaving(false); return }
       body.password = form.password
@@ -111,6 +118,11 @@ function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email</label>
+            <input className="input" type="email" placeholder="farmer@example.com" value={form.email} onChange={e => upd('email', e.target.value)} />
+          </div>
+
           {/* Area dropdown */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Area</label>
@@ -137,6 +149,17 @@ function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
               value={form.address}
               onChange={e => upd('address', e.target.value)}
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Order sizes you can supply</label>
+            <div className="grid grid-cols-3 gap-2">
+              {FARMER_SIZES.map(size => {
+                const checked = form.availableSizes.includes(size.id)
+                return <button type="button" key={size.id} onClick={() => upd('availableSizes', checked ? form.availableSizes.filter(item => item !== size.id) : [...form.availableSizes, size.id])} className={`p-2 rounded-xl border-2 text-left ${checked ? 'border-brand-500 bg-brand-50' : 'border-gray-100'}`}><span className="block text-xs text-gray-500">{size.label}</span><span className="font-bold text-brand-700">{size.amount}</span></button>
+              })}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Select all sizes that apply. Customers will see you in each selected tab.</p>
           </div>
 
           {/* Password */}
@@ -177,6 +200,7 @@ function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
             ['📞 Phone',        form.phone   || '—'],
             ['📍 Area',         form.region  || '—'],
             ['🏡 Farm Address', form.address || '—'],
+            ['📦 Order sizes', form.availableSizes.join(', ') || '—'],
             ['🔒 Password',     '••••••••'],
           ].map(([label, val]) => (
             <div key={label} className="flex justify-between py-2.5 border-b border-gray-50 last:border-0">
@@ -211,7 +235,7 @@ function LoginScreen() {
         <div className="text-center mb-8">
           <div className="text-6xl mb-3">🌾</div>
           <h1 className="text-2xl font-bold text-gray-900">Farmer Login</h1>
-          <p className="text-gray-500 text-sm mt-1">Enter your Farmer ID given by FarmLink admin</p>
+          <p className="text-gray-500 text-sm mt-1">Enter your Farmer ID given by Kisavi admin</p>
         </div>
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl mb-4 font-medium">{error}</div>}
@@ -266,6 +290,18 @@ export default function FarmerPanel() {
     ]).then(([f, o]) => { setFarmer(f); setOrders(o); setLoading(false) })
   }, [isFarmer, session?.user?.farmerId])
 
+  useEffect(() => {
+    if (!isFarmer || !session?.user?.farmerId) return
+    const refreshOrders = async () => {
+      try {
+        const updated = await fetch(`/api/orders?farmerId=${session.user.farmerId}`).then(r => r.json())
+        setOrders(updated)
+      } catch (_) {}
+    }
+    const interval = setInterval(refreshOrders, 10000)
+    return () => clearInterval(interval)
+  }, [isFarmer, session?.user?.farmerId])
+
   async function saveVeg() {
     setSaving(true)
     if (editVeg) {
@@ -296,12 +332,39 @@ export default function FarmerPanel() {
     setFarmer(updated)
   }
 
+  async function requestSettlement() {
+    const hour = new Date().getHours()
+    if (hour < 21) { showToast('Settlement requests open after 9:00 PM'); return }
+    const response = await fetch(`/api/farmers/${farmer.farmerId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settlementRequest: true }),
+    })
+    const data = await response.json()
+    if (!response.ok) { showToast(data.error || 'Could not request settlement'); return }
+    setFarmer(data); showToast('Settlement request sent to Kisavi')
+  }
+
   if (status === 'loading') return <div className="min-h-screen flex items-center justify-center"><div className="text-4xl animate-bounce">🌾</div></div>
   if (!isFarmer) return <LoginScreen />
   if (loading)   return <div className="min-h-screen flex items-center justify-center"><div className="text-4xl animate-bounce">🌾</div></div>
 
-  const revenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + o.total, 0)
-  const myEarnings = Math.round(revenue * 0.85)
+  const revenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.subtotal || 0), 0)
+  const deliveredOrders = orders.filter(o => o.status === 'delivered')
+  const farmerPayout = order => (order.subtotal || 0) - (order.platformCommission || Math.round((order.subtotal || 0) * 0.05))
+  const now = new Date()
+  const isToday = order => {
+    const date = new Date(order.createdAt)
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+  }
+  const isThisMonth = order => {
+    const date = new Date(order.createdAt)
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
+  }
+  const todayEarnings = deliveredOrders.filter(isToday).reduce((sum, order) => sum + farmerPayout(order), 0)
+  const monthlyEarnings = deliveredOrders.filter(isThisMonth).reduce((sum, order) => sum + farmerPayout(order), 0)
+  const settledAmount = deliveredOrders.filter(order => order.farmerSettlementStatus === 'settled').reduce((sum, order) => sum + farmerPayout(order), 0)
+  const pendingSettlement = deliveredOrders.filter(order => order.farmerSettlementStatus !== 'settled').reduce((sum, order) => sum + farmerPayout(order), 0)
+  const settlementRequestOpen = now.getHours() >= 21
 
   return (
     <div className="min-h-screen bg-gray-50 max-w-2xl mx-auto">
@@ -309,7 +372,7 @@ export default function FarmerPanel() {
       <div className="bg-brand-700 text-white px-5 py-4 sticky top-0 z-40">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-brand-300 text-xs">🌾 FarmLink Farmer</p>
+            <p className="text-brand-300 text-xs">🌾 Kisavi Farmer</p>
             <h1 className="font-bold text-lg leading-tight">{farmer?.name}</h1>
             <p className="text-brand-300 text-xs font-mono">{session.user.farmerId} · {farmer?.region}</p>
           </div>
@@ -334,10 +397,10 @@ export default function FarmerPanel() {
           <div className="space-y-4 fade-in-up">
             <div className="grid grid-cols-2 gap-3">
               {[
-                ['Total Orders', orders.length, '📦', 'brand'],
-                ['Your Earnings', `₹${myEarnings.toLocaleString('en-IN')}`, '💰', 'green'],
-                ['Vegetables', farmer?.vegetables?.length || 0, '🥦', 'blue'],
-                ['Rating', `${farmer?.rating?.toFixed(1)} ★`, '⭐', 'amber'],
+                ['Today Earnings', formatCurrency(todayEarnings), '☀️', 'green'],
+                ['Monthly Earnings', formatCurrency(monthlyEarnings), '📅', 'brand'],
+                ['Amount Settled', formatCurrency(settledAmount), '✅', 'blue'],
+                ['Pending Settlement', formatCurrency(pendingSettlement), '⏳', 'amber'],
               ].map(([label, val, icon, color]) => (
                 <div key={label} className="card p-4">
                   <div className="text-2xl mb-1">{icon}</div>
@@ -345,6 +408,10 @@ export default function FarmerPanel() {
                   <div className="text-xs text-gray-400 mt-0.5">{label}</div>
                 </div>
               ))}
+            </div>
+            <div className="card p-4 border-brand-100 bg-brand-50 flex items-center justify-between gap-3">
+              <div><p className="font-bold text-sm text-brand-800">Request settlement</p><p className="text-xs text-brand-700 mt-1">Available daily after 9:00 PM</p></div>
+              <button onClick={requestSettlement} disabled={!settlementRequestOpen || !pendingSettlement || farmer?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold disabled:opacity-40">{farmer?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
             </div>
 
             <div className="card p-4">
@@ -358,12 +425,17 @@ export default function FarmerPanel() {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm truncate">{o.customerName}</p>
                       <p className="text-xs text-gray-400">{o.items?.map(i=>`${i.name} ×${i.qty}`).join(', ')}</p>
+                      {o.status === 'placed' && <p className="text-[11px] font-semibold text-amber-700 mt-1">Prepare items before the delivery agent arrives.</p>}
                     </div>
                     <span className={`badge badge-${sc?.color} shrink-0`}>{sc?.label}</span>
                     <span className="font-bold text-sm text-brand-600 shrink-0">{formatCurrency(o.total)}</span>
                   </div>
                 )
               })}
+            </div>
+            <div className="card p-4 border-brand-100 bg-brand-50">
+              <h3 className="font-bold mb-1 text-sm text-brand-800">Order preparation</h3>
+              <p className="text-xs text-brand-700">When a new order is placed, prepare the items before the delivery agent reaches your farm.</p>
             </div>
           </div>
         )}
@@ -418,11 +490,12 @@ export default function FarmerPanel() {
                   </div>
                   <p className="font-bold text-gray-900 text-sm">{o.customerName}</p>
                   <p className="text-xs text-gray-500 mt-0.5 mb-2">{o.items?.map(i=>`${i.name} ×${i.qty} ${i.unit}`).join(' · ')}</p>
+                  {o.status === 'placed' && <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">Order placed. Please prepare these items before the delivery agent reaches you.</p>}
                   <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                     <span className="text-xs text-gray-400">{new Date(o.createdAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
                     <div className="text-right">
                       <p className="font-bold text-brand-600">{formatCurrency(o.total)}</p>
-                      <p className="text-xs text-gray-400">Your cut: {formatCurrency(Math.round(o.total * 0.85))}</p>
+                      <p className="text-xs text-gray-400">Your payout: {formatCurrency(farmerPayout(o))} · {o.farmerSettlementStatus === 'settled' ? 'Settled' : 'Pending settlement'}</p>
                     </div>
                   </div>
                 </div>

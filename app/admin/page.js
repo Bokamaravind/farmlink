@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { formatCurrency, getInitials, STATUS_CONFIG } from '@/lib/utils'
 
@@ -37,7 +37,7 @@ function LoginScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8"><div className="text-5xl mb-3">🌿</div><h1 className="text-2xl font-bold text-white">FarmLink Admin</h1><p className="text-gray-400 text-sm mt-1">Platform management portal</p></div>
+        <div className="text-center mb-8"><div className="text-5xl mb-3">🌿</div><h1 className="text-2xl font-bold text-white">Kisavi Admin</h1><p className="text-gray-400 text-sm mt-1">Platform management portal</p></div>
         <div className="bg-white rounded-2xl p-6 shadow-2xl">
           {error&&<div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl mb-4">{error}</div>}
           <form onSubmit={handle} className="space-y-4">
@@ -45,11 +45,65 @@ function LoginScreen() {
             <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Password</label><input className="input" type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} required/></div>
             <button type="submit" disabled={loading} className="btn-brand w-full">{loading?'Signing in...':'Sign In'}</button>
           </form>
-          <p className="text-center text-xs text-gray-400 mt-4">Default: <code className="bg-gray-100 px-1 rounded">admin / farmlink2025</code></p>
+          <p className="text-center text-xs text-gray-400 mt-4">Use the admin credentials configured in your environment.</p>
         </div>
       </div>
     </div>
   )
+}
+
+function FarmerLocationPicker({ latitude, longitude, onChange }) {
+  const mapRef = useRef(null)
+  const mapObj = useRef(null)
+  const markerRef = useRef(null)
+
+  useEffect(() => {
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'; link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+    }
+    const init = () => {
+      if (!mapRef.current || !window.L || mapObj.current) return
+      const lat = Number(latitude) || 17.7284
+      const lng = Number(longitude) || 83.2104
+      mapObj.current = window.L.map(mapRef.current).setView([lat, lng], 13)
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapObj.current)
+      const setPin = async (nextLat, nextLng) => {
+        if (markerRef.current) markerRef.current.setLatLng([nextLat, nextLng])
+        else markerRef.current = window.L.marker([nextLat, nextLng], { draggable: true }).addTo(mapObj.current)
+        markerRef.current.off('dragend').on('dragend', event => { const pos = event.target.getLatLng(); setPin(pos.lat, pos.lng) })
+        mapObj.current.setView([nextLat, nextLng], 16)
+        onChange({ locationLat: nextLat.toFixed(6), locationLng: nextLng.toFixed(6) })
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${nextLat}&lon=${nextLng}`)
+          const data = await response.json()
+          const address = data.address || {}
+          onChange({
+            locationLat: nextLat.toFixed(6),
+            locationLng: nextLng.toFixed(6),
+            address: [address.road, address.suburb || address.village || address.town].filter(Boolean).join(', '),
+            region: address.suburb || address.village || address.town || address.city_district || '',
+          })
+        } catch (_) {}
+      }
+      mapObj.current.on('click', event => setPin(event.latlng.lat, event.latlng.lng))
+      if (latitude && longitude) setPin(lat, lng)
+    }
+    if (window.L) init()
+    else {
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; script.onload = init
+      document.head.appendChild(script)
+    }
+    return () => { if (mapObj.current) { mapObj.current.remove(); mapObj.current = null } }
+  }, [])
+
+  return <>
+    <div ref={mapRef} className="rounded-xl overflow-hidden" style={{ height: '210px', width: '100%' }} />
+    <p className="text-xs text-gray-400">Tap the farm location or drag the pin to fill the coordinates.</p>
+  </>
 }
 
 const STATUS_OPTIONS = ['placed','confirmed','picked_up','on_the_way','delivered','cancelled']
@@ -73,8 +127,8 @@ export default function AdminPanel() {
   const [successModal,setSuccessModal]       = useState(null)
   const [editFarmer,setEditFarmer]           = useState(null)
 
-  const [farmerForm,setFarmerForm] = useState({name:'',phone:'',region:'',address:'',password:''})
-  const [partnerForm,setPartnerForm] = useState({name:'',phone:'',region:'',vehicle:'Bike',password:''})
+  const [farmerForm,setFarmerForm] = useState({name:'',phone:'',email:'',region:'',address:'',locationLat:'',locationLng:'',availableSizes:['small'],password:''})
+  const [partnerForm,setPartnerForm] = useState({name:'',phone:'',email:'',region:'Lankelapalem',vehicle:'Bike',password:''})
 
   const isAdmin = status==='authenticated' && session?.user?.role==='admin'
 
@@ -96,7 +150,7 @@ export default function AdminPanel() {
     const res=await fetch('/api/farmers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(farmerForm)})
     const data=await res.json()
     setSaving(false); setFarmers(prev=>[data,...prev]); setAddFarmerModal(false)
-    setFarmerForm({name:'',phone:'',region:'',address:'',password:''})
+    setFarmerForm({name:'',phone:'',email:'',region:'',address:'',locationLat:'',locationLng:'',availableSizes:['small'],password:''})
     setSuccessModal({type:'farmer',id:data.farmerId,name:data.name,password:data.plainPassword,url:'/farmer'})
   }
 
@@ -105,7 +159,7 @@ export default function AdminPanel() {
     const res=await fetch('/api/delivery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(partnerForm)})
     const data=await res.json()
     setSaving(false); setPartners(prev=>[data,...prev]); setAddPartnerModal(false)
-    setPartnerForm({name:'',phone:'',region:'',vehicle:'Bike',password:''})
+    setPartnerForm({name:'',phone:'',email:'',region:'Lankelapalem',vehicle:'Bike',password:''})
     setSuccessModal({type:'delivery',id:data.partnerId,name:data.name,password:data.plainPassword,url:'/delivery'})
   }
 
@@ -139,6 +193,18 @@ export default function AdminPanel() {
     setOrders(prev=>prev.map(o=>o.orderId===orderId?{...o,status:newStatus}:o))
   }
 
+  async function settleOrders(type, orderIds) {
+    if (!orderIds.length) return
+    setSaving(true)
+    await Promise.all(orderIds.map(orderId => fetch('/api/orders', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, settlementType: type }),
+    })))
+    const refreshed = await fetch('/api/orders').then(r => r.json())
+    setOrders(refreshed); setSaving(false)
+    showToast(`${type === 'farmer' ? 'Farmer' : 'Delivery agent'} settlement completed`)
+  }
+
   async function assignDelivery(orderId,partner){
     await fetch('/api/orders',{method:'PATCH',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({orderId,deliveryPartnerId:partner._id,deliveryPartnerName:partner.name,deliveryPhone:partner.phone})})
@@ -156,13 +222,15 @@ export default function AdminPanel() {
 
   const activeFarmers    = farmers.filter(f=>f.active).length
   const deliveredOrders  = orders.filter(o=>o.status==='delivered')
-  const totalRevenue     = deliveredOrders.reduce((s,o)=>s+o.total,0)
-  const platformRevenue  = Math.round(totalRevenue*0.08)
+  const totalRevenue     = deliveredOrders.reduce((s,o)=>s+(o.subtotal || 0),0)
+  const platformRevenue  = deliveredOrders.reduce((s,o)=>s+(o.platformCommission || Math.round((o.subtotal || 0)*0.05)),0)
   const liveOrders       = orders.filter(o=>!['delivered','cancelled'].includes(o.status)).length
   const paidOrders       = orders.filter(o=>o.paymentStatus==='paid').length
 
   const filteredFarmers  = farmers.filter(f=>!search||f.name.toLowerCase().includes(search.toLowerCase())||f.farmerId.includes(search.toUpperCase())||f.region.toLowerCase().includes(search.toLowerCase()))
   const filteredOrders   = orders.filter(o=>!orderFilter||o.status===orderFilter)
+  const farmerSettlement = farmer => orders.filter(o=>o.farmerId===farmer.farmerId && o.status==='delivered')
+  const partnerSettlement = partner => orders.filter(o=>o.deliveryPartnerId===partner._id && o.status==='delivered')
 
   const TABS = [['overview','📊','Overview'],['farmers','👨‍🌾','Farmers'],['delivery','🛵','Delivery'],['orders','📦','Orders'],['revenue','💰','Revenue']]
 
@@ -171,7 +239,7 @@ export default function AdminPanel() {
       <div className="flex">
         {/* Sidebar */}
         <aside className="hidden lg:flex flex-col w-56 bg-gray-900 min-h-screen fixed left-0 top-0">
-          <div className="p-5 border-b border-gray-700"><div className="text-xl font-bold text-white">🌿 FarmLink</div><div className="text-gray-400 text-xs mt-0.5">Admin Panel</div></div>
+          <div className="p-5 border-b border-gray-700"><div className="text-xl font-bold text-white">🌿 Kisavi</div><div className="text-gray-400 text-xs mt-0.5">Admin Panel</div></div>
           <nav className="flex-1 p-3 space-y-1">
             {TABS.map(([id,icon,label])=>(
               <button key={id} onClick={()=>setTab(id)}
@@ -189,7 +257,7 @@ export default function AdminPanel() {
         <div className="flex-1 lg:ml-56">
           {/* Topbar */}
           <div className="bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between sticky top-0 z-40">
-            <div><h1 className="font-bold text-lg capitalize">{tab}</h1><p className="text-xs text-gray-400">FarmLink Admin</p></div>
+            <div><h1 className="font-bold text-lg capitalize">{tab}</h1><p className="text-xs text-gray-400">Kisavi Admin</p></div>
             <div className="flex items-center gap-3">
               {farmers.length===0&&<button onClick={seedData} className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">🌱 Seed Demo Data</button>}
               <div className="flex lg:hidden gap-1">
@@ -263,7 +331,7 @@ export default function AdminPanel() {
               <div className="fade-in-up">
                 <div className="flex flex-col sm:flex-row gap-3 mb-4">
                   <input className="input flex-1 text-sm" placeholder="Search name, ID or region…" value={search} onChange={e=>setSearch(e.target.value)}/>
-                  <button onClick={()=>{setFarmerForm({name:'',phone:'',region:'',address:'',password:''});setAddFarmerModal(true)}} className="btn-brand px-5 py-3 text-sm whitespace-nowrap">+ Add Farmer</button>
+                  <button onClick={()=>{setFarmerForm({name:'',phone:'',email:'',region:'',address:'',locationLat:'',locationLng:'',availableSizes:['small'],password:''});setAddFarmerModal(true)}} className="btn-brand px-5 py-3 text-sm whitespace-nowrap">+ Add Farmer</button>
                 </div>
                 {loading?[1,2,3].map(i=><div key={i} className="skeleton h-24 rounded-2xl mb-3"/>):(
                   <div className="space-y-3">
@@ -282,7 +350,7 @@ export default function AdminPanel() {
                           </div>
                         </div>
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                          <button onClick={()=>{setEditFarmer(f);setFarmerForm({name:f.name,phone:f.phone,region:f.region,address:f.address||'',password:''});setEditFarmerModal(true)}}
+                          <button onClick={()=>{setEditFarmer(f);setFarmerForm({name:f.name,phone:f.phone,email:f.email||'',region:f.region,address:f.address||'',locationLat:f.location?.lat||'',locationLng:f.location?.lng||'',availableSizes:f.availableSizes||['small'],password:''});setEditFarmerModal(true)}}
                             className="flex-1 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Edit</button>
                           <button onClick={()=>toggleFarmer(f)}
                             className={`flex-1 py-2 text-xs font-semibold rounded-xl border ${f.active?'border-amber-200 text-amber-600 hover:bg-amber-50':'border-brand-200 text-brand-600 hover:bg-brand-50'}`}>
@@ -303,7 +371,7 @@ export default function AdminPanel() {
               <div className="fade-in-up">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="font-bold text-gray-800">Delivery Partners ({partners.length})</h2>
-                  <button onClick={()=>{setPartnerForm({name:'',phone:'',region:'',vehicle:'Bike',password:''});setAddPartnerModal(true)}} className="btn-brand px-5 py-2.5 text-sm">+ Add Partner</button>
+                  <button onClick={()=>{setPartnerForm({name:'',phone:'',email:'',region:'Lankelapalem',vehicle:'Bike',password:''});setAddPartnerModal(true)}} className="btn-brand px-5 py-2.5 text-sm">+ Add Partner</button>
                 </div>
                 <div className="space-y-3">
                   {partners.map(p=>(
@@ -400,9 +468,9 @@ export default function AdminPanel() {
               <div className="space-y-4 fade-in-up">
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <StatCard icon="💰" label="Total GMV"        value={formatCurrency(totalRevenue)}                       color="brand"/>
-                  <StatCard icon="📈" label="Platform (8%)"   value={formatCurrency(platformRevenue)}                    color="blue"/>
-                  <StatCard icon="🚚" label="Delivery Rev"    value={formatCurrency(deliveredOrders.length*25)}           color="amber"/>
-                  <StatCard icon="🧾" label="Farmer Payouts"  value={formatCurrency(Math.round(totalRevenue*0.85))}       color="purple"/>
+                  <StatCard icon="📈" label="Platform (5%)"   value={formatCurrency(platformRevenue)}                    color="blue"/>
+                  <StatCard icon="🚚" label="Delivery Paid"   value={formatCurrency(deliveredOrders.reduce((s,o)=>s+(o.deliveryAgentFee || o.deliveryFee || 0),0))} color="amber"/>
+                  <StatCard icon="🧾" label="Farmer Payouts"  value={formatCurrency(totalRevenue-platformRevenue)}       color="purple"/>
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                   <div className="px-5 py-4 border-b border-gray-100"><h3 className="font-bold text-gray-800">Revenue by Farmer</h3></div>
@@ -422,13 +490,28 @@ export default function AdminPanel() {
                           </div>
                           <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
                         </div>
+                        {(() => {
+                          const farmerOrders = farmerSettlement(f)
+                          const pending = farmerOrders.filter(o => o.farmerSettlementStatus !== 'settled')
+                          const payout = pending.reduce((sum, o) => sum + (o.subtotal || 0) - (o.platformCommission || Math.round((o.subtotal || 0) * 0.05)), 0)
+                          return <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50 text-xs"><span className="text-gray-500">Pending settlement: <b>{formatCurrency(payout)}</b></span><button disabled={!pending.length || saving} onClick={() => settleOrders('farmer', pending.map(o => o.orderId))} className="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 font-semibold disabled:opacity-40">{pending.length ? 'Settle farmer' : 'Settled'}</button></div>
+                        })()}
                       </div>
                     )
                   })}
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                  <h3 className="font-bold text-gray-800 mb-4">Delivery agent settlements</h3>
+                  {partners.map(p => {
+                    const partnerOrders = partnerSettlement(p)
+                    const pending = partnerOrders.filter(o => o.deliverySettlementStatus !== 'settled')
+                    const payout = pending.reduce((sum, o) => sum + (o.deliveryAgentFee || o.deliveryFee || 0), 0)
+                    return <div key={p._id} className="flex items-center justify-between gap-3 py-3 border-b border-gray-50 last:border-0"><div><p className="font-semibold text-sm">{p.name}</p><p className="text-xs text-gray-400">{p.partnerId} · Pending: {formatCurrency(payout)}</p></div><button disabled={!pending.length || saving} onClick={() => settleOrders('delivery', pending.map(o => o.orderId))} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-semibold text-xs disabled:opacity-40">{pending.length ? 'Settle agent' : 'Settled'}</button></div>
+                  })}
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-100 p-5">
                   <h3 className="font-bold text-gray-800 mb-4">Fee Breakdown</h3>
-                  {[['Platform fee (8%)',Math.round(totalRevenue*0.08),'#1a9e66'],['Delivery fees',deliveredOrders.length*25,'#3b82f6'],['Farmer payouts (85%)',Math.round(totalRevenue*0.85),'#6b7280']].map(([label,val,color])=>(
+                  {[['Platform commission (5%)',platformRevenue,'#1a9e66'],['Delivery agent payouts',deliveredOrders.reduce((s,o)=>s+(o.deliveryAgentFee || o.deliveryFee || 0),0),'#3b82f6'],['Farmer payouts',totalRevenue-platformRevenue,'#6b7280']].map(([label,val,color])=>(
                     <div key={label} className="flex items-center gap-3 mb-3 last:mb-0">
                       <span className="text-xs text-gray-500 w-36 shrink-0">{label}</span>
                       <div className="flex-1 h-5 bg-gray-100 rounded-lg overflow-hidden">
@@ -447,7 +530,7 @@ export default function AdminPanel() {
       {/* ADD FARMER MODAL */}
       <Modal open={addFarmerModal} onClose={()=>setAddFarmerModal(false)} title="Add New Farmer">
         <div className="space-y-4">
-        {[['name','Full Name','Balu Patil','text'],['phone','Phone','9876543210','tel'],['address','Farm Address','Lankelapalem','text'],['password','Login Password','farm001','text']].map(([key,label,ph,type])=>(
+        {[['name','Full Name','Balu Patil','text'],['phone','Phone','9876543210','tel'],['email','Email','farmer@example.com','email'],['address','Farm Address','Lankelapalem','text'],['password','Login Password','farm001','text']].map(([key,label,ph,type])=>(
   <div key={key}><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label><input className="input" type={type} placeholder={ph} value={farmerForm[key]} onChange={e=>uf(key,e.target.value)}/></div>
 ))}
 {/* Region as dropdown */}
@@ -461,17 +544,39 @@ export default function AdminPanel() {
     <option value="Paravada">Paravada (South)</option>
   </select>
 </div>
+<div>
+  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farmer sizes</label>
+  <div className="grid grid-cols-3 gap-2">
+    {['small','medium','large'].map(size => <label key={size} className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 cursor-pointer"><input type="checkbox" checked={farmerForm.availableSizes.includes(size)} onChange={() => setFarmerForm(form => ({ ...form, availableSizes: form.availableSizes.includes(size) ? form.availableSizes.filter(value => value !== size) : [...form.availableSizes, size] }))} /><span className="text-sm font-semibold capitalize">{size}</span></label>)}
+  </div>
+  {!farmerForm.availableSizes.length && <p className="text-xs text-red-500 mt-1">Select at least one size.</p>}
+</div>
+<FarmerLocationPicker latitude={farmerForm.locationLat} longitude={farmerForm.locationLng} onChange={values => setFarmerForm(form => ({ ...form, ...values }))} />
+<div className="grid grid-cols-2 gap-2">
+  <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farm latitude</label><input className="input" type="number" step="any" placeholder="17.7284" value={farmerForm.locationLat} onChange={e=>uf('locationLat',e.target.value)}/></div>
+  <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farm longitude</label><input className="input" type="number" step="any" placeholder="83.2104" value={farmerForm.locationLng} onChange={e=>uf('locationLng',e.target.value)}/></div>
+</div>
           <div className="bg-brand-50 text-brand-700 text-xs px-3 py-2 rounded-xl">Unique Farmer ID (FL-XXX) will be auto-generated.</div>
-          <button onClick={addFarmer} disabled={saving||!farmerForm.name||!farmerForm.phone||!farmerForm.region||!farmerForm.password} className="btn-brand w-full disabled:opacity-50">{saving?'Creating...':'Create Farmer'}</button>
+          <button onClick={addFarmer} disabled={saving||!farmerForm.name||!farmerForm.phone||!farmerForm.region||!farmerForm.password||!farmerForm.availableSizes.length} className="btn-brand w-full disabled:opacity-50">{saving?'Creating...':'Create Farmer'}</button>
         </div>
       </Modal>
 
       {/* EDIT FARMER MODAL */}
       <Modal open={editFarmerModal} onClose={()=>setEditFarmerModal(false)} title={`Edit · ${editFarmer?.farmerId}`}>
         <div className="space-y-4">
-          {[['name','Full Name','text'],['phone','Phone','tel'],['region','Region','text'],['address','Address','text']].map(([key,label,type])=>(
+          {[['name','Full Name','text'],['phone','Phone','tel'],['email','Email','email'],['region','Region','text'],['address','Address','text']].map(([key,label,type])=>(
             <div key={key}><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label><input className="input" type={type} value={farmerForm[key]} onChange={e=>uf(key,e.target.value)}/></div>
           ))}
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farm latitude</label><input className="input" type="number" step="any" value={farmerForm.locationLat} onChange={e=>uf('locationLat',e.target.value)}/></div>
+            <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farm longitude</label><input className="input" type="number" step="any" value={farmerForm.locationLng} onChange={e=>uf('locationLng',e.target.value)}/></div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farmer sizes</label>
+            <div className="grid grid-cols-3 gap-2">
+              {['small','medium','large'].map(size => <label key={size} className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 cursor-pointer"><input type="checkbox" checked={farmerForm.availableSizes.includes(size)} onChange={() => setFarmerForm(form => ({ ...form, availableSizes: form.availableSizes.includes(size) ? form.availableSizes.filter(value => value !== size) : [...form.availableSizes, size] }))} /><span className="text-sm font-semibold capitalize">{size}</span></label>)}
+            </div>
+          </div>
           <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">New Password (blank = keep current)</label><input className="input" type="text" placeholder="New password…" value={farmerForm.password} onChange={e=>uf('password',e.target.value)}/></div>
           <button onClick={saveFarmer} disabled={saving} className="btn-brand w-full disabled:opacity-50">{saving?'Saving...':'Save Changes'}</button>
         </div>
@@ -480,17 +585,13 @@ export default function AdminPanel() {
       {/* ADD DELIVERY PARTNER MODAL */}
       <Modal open={addPartnerModal} onClose={()=>setAddPartnerModal(false)} title="Add Delivery Partner">
         <div className="space-y-4">
-        {/* Replace the region text input with: */}
-<div>
-  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Area</label>
-  <select className="input" value={partnerForm.region} onChange={e=>up('region',e.target.value)}>
-    <option value="">Select area</option>
-    <option value="Lankelapalem">Lankelapalem (HQ)</option>
-    <option value="Kurmannapalem">Kurmannapalem (East)</option>
-    <option value="Anakapalli">Anakapalli (West)</option>
-    <option value="Paravada">Paravada (South)</option>
-  </select>
-</div>
+        {[['name','Full Name','Ravi Kumar','text'],['phone','Phone','9876543210','tel'],['email','Email','delivery@example.com','email'],['password','Login Password','delivery001','password']].map(([key,label,placeholder,type])=>(
+          <div key={key}>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
+            <input className="input" type={type} placeholder={placeholder} value={partnerForm[key]} onChange={e=>up(key,e.target.value)} />
+          </div>
+        ))}
+          <div className="bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-xl">Default area: Lankelapalem. Delivery availability is based on the partner's live location.</div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Vehicle</label>
             <select className="input" value={partnerForm.vehicle} onChange={e=>up('vehicle',e.target.value)}>
@@ -511,7 +612,7 @@ export default function AdminPanel() {
             <div className="flex justify-between"><span className="text-gray-500 text-sm">ID</span><code className="font-mono font-bold text-brand-700 text-lg">{successModal?.id}</code></div>
             <div className="flex justify-between"><span className="text-gray-500 text-sm">Password</span><code className="font-mono font-bold text-gray-800">{successModal?.password}</code></div>
             <div className="flex justify-between"><span className="text-gray-500 text-sm">Name</span><span className="font-semibold">{successModal?.name}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500 text-sm">Login URL</span><code className="text-xs text-blue-600">farmlink.in{successModal?.url}</code></div>
+            <div className="flex justify-between"><span className="text-gray-500 text-sm">Login URL</span><code className="text-xs text-blue-600">kisavi.in{successModal?.url}</code></div>
           </div>
           <button onClick={()=>setSuccessModal(null)} className="btn-brand w-full">Done</button>
         </div>

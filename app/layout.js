@@ -15,7 +15,7 @@ const jetbrains = JetBrains_Mono({
 })
 
 export const metadata = {
-  title: 'FarmLink — Fresh From the Farm',
+  title: 'Kisavi — Fresh From the Farm',
   description: 'Order fresh vegetables directly from local farmers. No middlemen, better prices.',
   manifest: '/manifest.json',
   // themeColor and viewport moved/removed to avoid unsupported metadata warnings

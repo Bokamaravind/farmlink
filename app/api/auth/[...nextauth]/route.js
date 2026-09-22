@@ -82,7 +82,7 @@ export const authOptions = {
           credentials.username === process.env.ADMIN_USERNAME &&
           credentials.password === process.env.ADMIN_PASSWORD
         ) {
-          return { id: 'admin', name: 'FarmLink Admin', role: 'admin' }
+          return { id: 'admin', name: 'Kisavi Admin', role: 'admin' }
         }
         throw new Error('Invalid admin credentials')
       },

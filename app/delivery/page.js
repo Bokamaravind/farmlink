@@ -9,7 +9,8 @@ function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
   const [form,    setForm]    = useState({
     name:     partner?.name    || '',
     phone:    partner?.phone   || '',
-    region:   partner?.region  || '',
+    email:    partner?.email   || '',
+    region:   'Lankelapalem',
     vehicle:  partner?.vehicle || 'Bike',
     password: '',
   })
@@ -17,7 +18,7 @@ function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
 
   async function save() {
     setSaving(true); setMsg('')
-    const body = { name: form.name, phone: form.phone, region: form.region, vehicle: form.vehicle }
+    const body = { name: form.name, phone: form.phone, email: form.email, vehicle: form.vehicle }
     if (form.password) {
       if (form.password.length < 6) { setMsg('Password must be at least 6 characters'); setSaving(false); return }
       body.password = form.password
@@ -58,7 +59,7 @@ function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
           {[
             ['name',   'Full Name', 'text', 'Suresh Kumar'],
             ['phone',  'Phone',     'tel',  '9876543210'],
-            ['region', 'Area',      'text', 'Hyderabad'],
+            ['email',  'Email',     'email',  'delivery@example.com'],
           ].map(([key, label, type, ph]) => (
             <div key={key}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</label>
@@ -83,7 +84,7 @@ function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
           {[
             ['📛 Name',    form.name    || '—'],
             ['📞 Phone',   form.phone   || '—'],
-            ['📍 Area',    form.region  || '—'],
+            ['📍 Area',    'Lankelapalem'],
             ['🛵 Vehicle', form.vehicle || '—'],
             ['🔒 Password','••••••••'],
           ].map(([label, val]) => (
@@ -116,7 +117,7 @@ function LoginScreen() {
         <div className="text-center mb-8">
           <div className="text-6xl mb-3">🛵</div>
           <h1 className="text-2xl font-bold text-gray-900">Delivery Partner</h1>
-          <p className="text-gray-500 text-sm mt-1">Login with your Partner ID from FarmLink admin</p>
+          <p className="text-gray-500 text-sm mt-1">Login with your Partner ID from Kisavi admin</p>
         </div>
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl mb-4 font-medium">{error}</div>}
@@ -136,7 +137,7 @@ function LoginScreen() {
             </button>
           </form>
           <div className="mt-4 p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
-            Your Partner ID and password are provided by the FarmLink admin. Contact admin if you don't have them.
+            Your Partner ID and password are provided by the Kisavi admin. Contact admin if you don't have them.
           </div>
         </div>
       </div>
@@ -165,7 +166,8 @@ export default function DeliveryPanel() {
     Promise.all([
       fetch(`/api/delivery/${pid}`).then(r => r.json()),
       fetch(`/api/orders?partnerId=${session.user.id}`).then(r => r.json()),
-    ]).then(([p, o]) => { setPartner(p); setOrders(o); setLoading(false) })
+      fetch('/api/orders?available=true').then(r => r.json()),
+    ]).then(([p, o, available]) => { setPartner(p); setOrders([...o, ...available.filter(order => !o.some(item => item.orderId === order.orderId))]); setLoading(false) })
   }, [isDelivery, session?.user?.partnerId])
 
   // Start / stop live location sharing
@@ -198,13 +200,54 @@ export default function DeliveryPanel() {
   useEffect(() => () => { if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current) }, [])
 
   async function updateStatus(orderId, newStatus) {
-    await fetch('/api/orders', {
+    let currentLocation
+    if (['picked_up', 'delivered'].includes(newStatus)) {
+      if (!navigator.geolocation) { showToast('GPS is not available on this device'); return }
+      try {
+        const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }))
+        currentLocation = { lat: position.coords.latitude, lng: position.coords.longitude }
+        setLocation(currentLocation)
+      } catch (_) {
+        showToast('Allow location access to verify your delivery position')
+        return
+      }
+    }
+    const response = await fetch('/api/orders', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId, status: newStatus }),
+      body: JSON.stringify({ orderId, status: newStatus, partnerId: session.user.id, currentLocation }),
     })
-    setOrders(prev => prev.map(o => o.orderId === orderId ? { ...o, status: newStatus } : o))
+    const data = await response.json()
+    if (!response.ok) { showToast(data.error || 'Could not update order status'); return }
+    setOrders(prev => prev.map(o => o.orderId === orderId ? data : o))
     showToast(`Status updated to ${STATUS_CONFIG[newStatus]?.label}`)
+  }
+
+  function openDirections(order, destination) {
+    const coordinates = destination === 'farmer' ? order.farmerLocation : order.location
+    const address = destination === 'farmer' ? order.farmerAddress : order.address
+    const target = coordinates?.lat && coordinates?.lng ? `${coordinates.lat},${coordinates.lng}` : address
+    if (!target) { showToast('Destination address is unavailable'); return }
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(target)}&travelmode=driving`, '_blank', 'noopener,noreferrer')
+  }
+
+  async function requestSettlement() {
+    if (new Date().getHours() < 21) { showToast('Settlement requests open after 9:00 PM'); return }
+    const response = await fetch(`/api/delivery/${session.user.partnerId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settlementRequest: true }),
+    })
+    const data = await response.json()
+    if (!response.ok) { showToast(data.error || 'Could not request settlement'); return }
+    setPartner(data); showToast('Settlement request sent to Kisavi')
+  }
+
+  async function claimOrder(orderId) {
+    const response = await fetch('/api/orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, claimPartnerId: session.user.partnerId }) })
+    const data = await response.json()
+    if (!response.ok) { showToast(data.error || 'Order was already accepted'); return }
+    setOrders(previous => previous.map(order => order.orderId === orderId ? data : order))
+    showToast('Order accepted')
   }
 
   if (status === 'loading') return <div className="min-h-screen flex items-center justify-center"><div className="text-4xl animate-bounce">🛵</div></div>
@@ -212,7 +255,16 @@ export default function DeliveryPanel() {
   if (loading)     return <div className="min-h-screen flex items-center justify-center"><div className="text-4xl animate-bounce">🛵</div></div>
 
   const delivered   = orders.filter(o => o.status === 'delivered')
-  const earnings    = delivered.reduce((s, o) => s + Math.round((o.deliveryFee || 25) * 0.8), 0)
+  const deliveryPayout = order => order.deliveryAgentFee || order.deliveryFee || 0
+  const earnings    = delivered.reduce((s, o) => s + deliveryPayout(o), 0)
+  const now = new Date()
+  const isToday = order => { const date = new Date(order.createdAt); return date.toDateString() === now.toDateString() }
+  const isThisMonth = order => { const date = new Date(order.createdAt); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() }
+  const todayEarnings = delivered.filter(isToday).reduce((sum, order) => sum + deliveryPayout(order), 0)
+  const monthlyEarnings = delivered.filter(isThisMonth).reduce((sum, order) => sum + deliveryPayout(order), 0)
+  const settledAmount = delivered.filter(order => order.deliverySettlementStatus === 'settled').reduce((sum, order) => sum + deliveryPayout(order), 0)
+  const pendingSettlement = delivered.filter(order => order.deliverySettlementStatus !== 'settled').reduce((sum, order) => sum + deliveryPayout(order), 0)
+  const settlementRequestOpen = now.getHours() >= 21
   const activeOrder = orders.find(o => ['confirmed','picked_up','on_the_way'].includes(o.status))
 
   const NEXT_STATUS = {
@@ -227,7 +279,7 @@ export default function DeliveryPanel() {
       <div className="bg-amber-500 text-white px-4 py-4 sticky top-0 z-40">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-amber-200 text-xs">🛵 FarmLink Delivery</p>
+            <p className="text-amber-200 text-xs">🛵 Kisavi Delivery</p>
             <h1 className="font-bold text-lg leading-tight">{partner?.name || session.user.name}</h1>
             <p className="text-amber-200 text-xs font-mono">{session.user.partnerId} · {partner?.region}</p>
           </div>
@@ -258,11 +310,12 @@ export default function DeliveryPanel() {
         {tab === 'dashboard' && (
           <div className="fade-in-up space-y-4">
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[
-                ['📦', 'Delivered', delivered.length, 'text-brand-600'],
-                ['💰', 'Earnings',  `₹${earnings}`,   'text-green-600'],
-                ['⭐', 'Rating',    partner?.rating?.toFixed(1)||'4.5', 'text-amber-600'],
+                ['☀️', 'Today Earnings', formatCurrency(todayEarnings), 'text-green-600'],
+                ['📅', 'Monthly Earnings', formatCurrency(monthlyEarnings), 'text-brand-600'],
+                ['✅', 'Amount Settled', formatCurrency(settledAmount), 'text-blue-600'],
+                ['⏳', 'Pending Settlement', formatCurrency(pendingSettlement), 'text-amber-600'],
               ].map(([icon,label,val,color]) => (
                 <div key={label} className="card p-3 text-center">
                   <div className="text-xl mb-1">{icon}</div>
@@ -270,6 +323,10 @@ export default function DeliveryPanel() {
                   <div className="text-xs text-gray-400">{label}</div>
                 </div>
               ))}
+            </div>
+            <div className="card p-4 border-amber-100 bg-amber-50 flex items-center justify-between gap-3">
+              <div><p className="font-bold text-sm text-amber-800">Request settlement</p><p className="text-xs text-amber-700 mt-1">Available daily after 9:00 PM</p></div>
+              <button onClick={requestSettlement} disabled={!settlementRequestOpen || !pendingSettlement || partner?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-bold disabled:opacity-40">{partner?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
             </div>
 
             {/* GPS status */}
@@ -298,10 +355,16 @@ export default function DeliveryPanel() {
                 </div>
                 <p className="font-mono text-xs text-gray-500 mb-1">{activeOrder.orderId}</p>
                 <p className="font-semibold text-sm mb-0.5">{activeOrder.customerName}</p>
+                <p className="text-xs text-gray-500 mb-1">🌾 Farm: {activeOrder.farmerName} · {activeOrder.farmerAddress || 'Address unavailable'}</p>
                 <p className="text-xs text-gray-500 mb-1">📍 {activeOrder.address}</p>
                 <p className="text-xs text-gray-500 mb-3">
                   Items: {activeOrder.items?.map(i=>`${i.name} ×${i.qty}`).join(', ')}
                 </p>
+                <button
+                  onClick={() => openDirections(activeOrder, activeOrder.status === 'confirmed' ? 'farmer' : 'customer')}
+                  className="w-full mb-2 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-sm font-bold">
+                  🗺️ {activeOrder.status === 'confirmed' ? 'Start ride to farmer' : 'Navigate to customer'}
+                </button>
                 {NEXT_STATUS[activeOrder.status] && (
                   <button
                     onClick={() => updateStatus(activeOrder.orderId, NEXT_STATUS[activeOrder.status].next)}
@@ -338,11 +401,20 @@ export default function DeliveryPanel() {
                     <span className={`badge badge-${sc?.color}`}>{sc?.label}</span>
                   </div>
                   <p className="font-bold text-sm">{o.customerName}</p>
+                  {!o.deliveryPartnerId && o.status === 'confirmed' && <button onClick={() => claimOrder(o.orderId)} className="w-full mb-2 py-2 bg-brand-600 text-white rounded-lg text-xs font-bold">Accept delivery</button>}
+                  <p className="text-xs text-gray-500 mt-0.5">🌾 Farm: {o.farmerName} · {o.farmerAddress || 'Address unavailable'}</p>
                   <p className="text-xs text-gray-400 mt-0.5 mb-1">📍 {o.address}</p>
                   <p className="text-xs text-gray-500 mb-2">{o.items?.map(i=>`${i.name} ×${i.qty}`).join(' · ')}</p>
+                  {o.deliveryPartnerId === session.user.id && ['confirmed', 'picked_up', 'on_the_way'].includes(o.status) && (
+                    <button
+                      onClick={() => openDirections(o, o.status === 'confirmed' ? 'farmer' : 'customer')}
+                      className="w-full mb-2 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold">
+                      🗺️ {o.status === 'confirmed' ? 'Start ride to farmer' : 'Navigate to customer'}
+                    </button>
+                  )}
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-green-600 font-semibold">
-                      Your earning: {formatCurrency(Math.round((o.deliveryFee||25)*0.8))}
+                      Your earning: {formatCurrency(deliveryPayout(o))}
                     </span>
                     {ns && o.status !== 'delivered' && (
                       <button onClick={() => updateStatus(o.orderId, ns.next)}
