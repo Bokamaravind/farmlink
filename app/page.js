@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation'
+import KisaviLanding from './landingpage/page'
 
 export default function Home() {
-  redirect('/customer')
+  return <KisaviLanding />
 }

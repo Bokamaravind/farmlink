@@ -459,6 +459,11 @@ function AuthScreen() {
   const [error, setError] = useState('')
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  useEffect(() => {
+    const mode = new URLSearchParams(window.location.search).get('mode')
+    if (mode === 'signup') setTab('signup')
+  }, [])
+
   async function doLogin(e) {
     e.preventDefault(); setError(''); setLoading(true)
     const res = await signIn('customer', { email: form.email, password: form.password, redirect: false })

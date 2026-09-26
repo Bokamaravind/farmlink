@@ -114,6 +114,8 @@ export default function AdminPanel() {
   const [farmers,setFarmers]     = useState([])
   const [orders,setOrders]       = useState([])
   const [partners,setPartners]   = useState([])
+  const [farmerVerificationRequests,setFarmerVerificationRequests] = useState([])
+  const [deliveryVerificationRequests,setDeliveryVerificationRequests] = useState([])
   const [loading,setLoading]     = useState(true)
   const [saving,setSaving]       = useState(false)
   const [search,setSearch]       = useState('')
@@ -136,20 +138,35 @@ export default function AdminPanel() {
   const uf=(k,v)=>setFarmerForm(f=>({...f,[k]:v}))
   const up=(k,v)=>setPartnerForm(p=>({...p,[k]:v}))
 
+  function requestHasAccount(request, accounts) {
+    return accounts.some(account => (
+      request.phone && account.phone === request.phone
+    ) || (
+      request.email && account.email && account.email.toLowerCase() === request.email.toLowerCase()
+    ))
+  }
+
   useEffect(()=>{
     if(!isAdmin)return
     Promise.all([
       fetch('/api/farmers').then(r=>r.json()),
       fetch('/api/orders').then(r=>r.json()),
       fetch('/api/delivery').then(r=>r.json()),
-    ]).then(([f,o,p])=>{setFarmers(f);setOrders(o);setPartners(p);setLoading(false)})
+      fetch('/api/verification/farmers').then(r=>r.json()),
+      fetch('/api/verification/delivery').then(r=>r.json()),
+    ]).then(([f,o,p,fr,dr])=>{setFarmers(f);setOrders(o);setPartners(p);setFarmerVerificationRequests(fr);setDeliveryVerificationRequests(dr);setLoading(false)})
   },[isAdmin])
 
   async function addFarmer(){
     setSaving(true)
     const res=await fetch('/api/farmers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(farmerForm)})
     const data=await res.json()
-    setSaving(false); setFarmers(prev=>[data,...prev]); setAddFarmerModal(false)
+    setSaving(false)
+    if (!res.ok) {
+      showToast(data?.error || 'Farmer creation failed')
+      return
+    }
+    setFarmers(prev=>[data,...prev]); setAddFarmerModal(false)
     setFarmerForm({name:'',phone:'',email:'',region:'',address:'',locationLat:'',locationLng:'',availableSizes:['small'],password:''})
     setSuccessModal({type:'farmer',id:data.farmerId,name:data.name,password:data.plainPassword,url:'/farmer'})
   }
@@ -158,7 +175,12 @@ export default function AdminPanel() {
     setSaving(true)
     const res=await fetch('/api/delivery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(partnerForm)})
     const data=await res.json()
-    setSaving(false); setPartners(prev=>[data,...prev]); setAddPartnerModal(false)
+    setSaving(false)
+    if (!res.ok) {
+      showToast(data?.error || 'Delivery partner creation failed')
+      return
+    }
+    setPartners(prev=>[data,...prev]); setAddPartnerModal(false)
     setPartnerForm({name:'',phone:'',email:'',region:'Lankelapalem',vehicle:'Bike',password:''})
     setSuccessModal({type:'delivery',id:data.partnerId,name:data.name,password:data.plainPassword,url:'/delivery'})
   }
@@ -217,6 +239,57 @@ export default function AdminPanel() {
     const f=await fetch('/api/farmers').then(r=>r.json()); setFarmers(f); showToast('Demo data seeded!')
   }
 
+  function openFarmerRequest(req) {
+    setFarmerForm({
+      name:req.name,
+      phone:req.phone,
+      email:req.email||'',
+      region:req.region,
+      address:req.address||'',
+      locationLat:'',
+      locationLng:'',
+      availableSizes:['small'],
+      password:''
+    })
+    setAddFarmerModal(true)
+    showToast('Farmer form pre-filled from request')
+  }
+
+  function openDeliveryRequest(req) {
+    setPartnerForm({
+      name:req.name,
+      phone:req.phone,
+      email:req.email||'',
+      region:req.region||'Lankelapalem',
+      vehicle:req.vehicle||'Bike',
+      password:''
+    })
+    setAddPartnerModal(true)
+    showToast('Delivery form pre-filled from request')
+  }
+
+  async function approveFarmerRequest(requestId) {
+    await fetch('/api/verification/farmers', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, status: 'approved' })
+    })
+    const updated = await fetch('/api/verification/farmers').then(r => r.json())
+    setFarmerVerificationRequests(updated)
+    showToast('Farmer request approved')
+  }
+
+  async function approveDeliveryRequest(requestId) {
+    await fetch('/api/verification/delivery', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, status: 'approved' })
+    })
+    const updated = await fetch('/api/verification/delivery').then(r => r.json())
+    setDeliveryVerificationRequests(updated)
+    showToast('Delivery request approved')
+  }
+
   if(status==='loading')return <div className="min-h-screen flex items-center justify-center"><div className="text-4xl animate-bounce">🌿</div></div>
   if(!isAdmin)return <LoginScreen/>
 
@@ -232,7 +305,8 @@ export default function AdminPanel() {
   const farmerSettlement = farmer => orders.filter(o=>o.farmerId===farmer.farmerId && o.status==='delivered')
   const partnerSettlement = partner => orders.filter(o=>o.deliveryPartnerId===partner._id && o.status==='delivered')
 
-  const TABS = [['overview','📊','Overview'],['farmers','👨‍🌾','Farmers'],['delivery','🛵','Delivery'],['orders','📦','Orders'],['revenue','💰','Revenue']]
+  const TABS = [['overview','📊','Overview'],['farmers','👨‍🌾','Farmers'],['delivery','🛵','Delivery'],['verification','✅','Verification'],['orders','📦','Orders'],['revenue','💰','Revenue']]
+  const pendingVerificationCount = (farmerVerificationRequests.filter(r=>r.status==='pending').length + deliveryVerificationRequests.filter(r=>r.status==='pending').length)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -260,6 +334,8 @@ export default function AdminPanel() {
             <div><h1 className="font-bold text-lg capitalize">{tab}</h1><p className="text-xs text-gray-400">Kisavi Admin</p></div>
             <div className="flex items-center gap-3">
               {farmers.length===0&&<button onClick={seedData} className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">🌱 Seed Demo Data</button>}
+              <a href="/verification/farmer" target="_blank" className="text-xs bg-brand-100 text-brand-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-200">+ New Farmer Request</a>
+              <a href="/verification/delivery" target="_blank" className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">+ New Delivery Request</a>
               <div className="flex lg:hidden gap-1">
                 {TABS.map(([id,icon])=>(
                   <button key={id} onClick={()=>setTab(id)} className={`w-9 h-9 rounded-xl text-sm ${tab===id?'bg-brand-600 text-white':'bg-gray-100 text-gray-500'}`}>{icon}</button>
@@ -276,8 +352,8 @@ export default function AdminPanel() {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <StatCard icon="👨‍🌾" label="Active Farmers"  value={activeFarmers}  sub={`${farmers.length} total`}  color="brand"/>
                   <StatCard icon="📦" label="Live Orders"    value={liveOrders}     sub={`${orders.length} total`}   color="blue"/>
-                  <StatCard icon="💰" label="Total GMV"      value={`₹${(totalRevenue/1000).toFixed(1)}K`} sub="delivered orders" color="amber"/>
-                  <StatCard icon="💳" label="Paid Orders"    value={paidOrders}     sub="via Razorpay"              color="purple"/>
+                  <StatCard icon="✅" label="Pending Verification" value={pendingVerificationCount} sub="farmer & delivery requests" color="amber"/>
+                  <StatCard icon="💰" label="Total GMV"      value={`₹${(totalRevenue/1000).toFixed(1)}K`} sub="delivered orders" color="purple"/>
                 </div>
 
                 {/* Recent orders */}
@@ -394,6 +470,81 @@ export default function AdminPanel() {
                     </div>
                   ))}
                   {partners.length===0&&<div className="text-center py-12 text-gray-400"><div className="text-5xl mb-3">🛵</div><p>No delivery partners yet</p></div>}
+                </div>
+              </div>
+            )}
+
+            {/* ── VERIFICATION REQUESTS ── */}
+            {tab==='verification'&&(
+              <div className="space-y-5 fade-in-up">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-gray-800">Farmer verification requests</h3>
+                      <span className="text-xs bg-brand-100 text-brand-700 px-2 py-1 rounded-full">{farmerVerificationRequests.filter(r=>r.status==='pending').length} pending</span>
+                    </div>
+                    <div className="space-y-3">
+                      {farmerVerificationRequests.map(req => (
+                        <div key={req._id} className="border border-gray-100 rounded-xl p-3">
+                          <div className="flex justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-sm">{req.name}</p>
+                              <p className="text-xs text-gray-500">{req.phone} · {req.region}</p>
+                            </div>
+                            <span className={`text-[10px] px-2 py-1 rounded-full ${req.status==='pending'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>{req.status}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">Aadhaar: {req.aadhaarNumber?.slice(-4)} · Bank: {req.bankName} · {req.bankAccountNumber?.slice(-4)}</p>
+                          <div className="flex gap-2 mt-3">
+                            {requestHasAccount(req, farmers) ? (
+                              <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Farmer added to panel</button>
+                            ) : (
+                              <button onClick={() => openFarmerRequest(req)} className="flex-1 py-2 text-xs font-semibold border border-brand-200 rounded-xl text-brand-600 hover:bg-brand-50">Create Farmer</button>
+                            )}
+                            {req.status === 'approved' ? (
+                              <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Approved</button>
+                            ) : (
+                              <button onClick={() => approveFarmerRequest(req.requestId)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50">Approve</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {!farmerVerificationRequests.length && <p className="text-sm text-gray-400 py-6 text-center">No farmer verification requests yet.</p>}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-gray-800">Delivery verification requests</h3>
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">{deliveryVerificationRequests.filter(r=>r.status==='pending').length} pending</span>
+                    </div>
+                    <div className="space-y-3">
+                      {deliveryVerificationRequests.map(req => (
+                        <div key={req._id} className="border border-gray-100 rounded-xl p-3">
+                          <div className="flex justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-sm">{req.name}</p>
+                              <p className="text-xs text-gray-500">{req.phone} · {req.vehicle}</p>
+                            </div>
+                            <span className={`text-[10px] px-2 py-1 rounded-full ${req.status==='pending'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>{req.status}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">Aadhaar: {req.aadhaarNumber?.slice(-4)} · Bank: {req.bankName} · {req.bankAccountNumber?.slice(-4)}</p>
+                          <div className="flex gap-2 mt-3">
+                            {requestHasAccount(req, partners) ? (
+                              <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Partner added to panel</button>
+                            ) : (
+                              <button onClick={() => openDeliveryRequest(req)} className="flex-1 py-2 text-xs font-semibold border border-amber-200 rounded-xl text-amber-600 hover:bg-amber-50">Create Partner</button>
+                            )}
+                            {req.status === 'approved' ? (
+                              <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Approved</button>
+                            ) : (
+                              <button onClick={() => approveDeliveryRequest(req.requestId)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50">Approve</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {!deliveryVerificationRequests.length && <p className="text-sm text-gray-400 py-6 text-center">No delivery verification requests yet.</p>}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
