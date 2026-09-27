@@ -3,6 +3,7 @@
 import Link from "next/link"
 
 const LOGO = "/images/logo-kisavi.jpeg"
+const LOGO1 = "/images/kisavi-logo-updated.png"
 
 export default function LegalLayout({ title, lastUpdated, children }) {
   return (
@@ -19,8 +20,8 @@ export default function LegalLayout({ title, lastUpdated, children }) {
             <div style={{
               width:60,height:60,borderRadius:30,flexShrink:0, 
               backgroundColor:"#fff",
-              backgroundImage:`url(${LOGO})`,
-              backgroundSize:"145% auto",
+              backgroundImage:`url(${LOGO1})`,
+              backgroundSize:"100% auto",
               backgroundPosition:"60% 5%",
               backgroundRepeat:"no-repeat",
               boxShadow:"0 4px 14px rgba(26,122,82,0.25)"

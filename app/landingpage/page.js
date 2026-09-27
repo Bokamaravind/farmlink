@@ -10,7 +10,8 @@ const NAV_LINKS = ["Home","About","What We Offer","How It Works","Future Plans",
 // Save both under /public/images/. The rest are free-license Unsplash photos.
 const IMG = {
   hero:   "/images/farmer-bg.png",
-  logo:   "/images/logo-kisavi.jpeg",
+  logo:   "/images/kisavi-logo-updated.png",
+  logo1:  "/images/logo-kisavi.jpeg",
   about:  "https://images.unsplash.com/photo-1671769195087-58336aa02943?auto=format&fit=crop&w=1200&q=80", // Telangana farmland
   leafy:  "https://images.unsplash.com/photo-1708795300912-fa5ebd3e7977?auto=format&fit=crop&w=800&q=80",  // leafy greens close-up
   tomato: "https://images.unsplash.com/photo-1513791053024-3b50799fdd7b?auto=format&fit=crop&w=800&q=80",  // vine tomatoes
@@ -90,7 +91,7 @@ export default function KisaviLanding(){
               width:60,height:60,borderRadius:30,flexShrink:0, 
               backgroundColor:"#fff",
               backgroundImage:`url(${IMG.logo})`,
-              backgroundSize:"145% auto",
+              backgroundSize:"100% auto",
               backgroundPosition:"60% 5%",
               backgroundRepeat:"no-repeat",
               boxShadow:"0 4px 14px rgba(26,122,82,0.25)"
@@ -567,7 +568,7 @@ export default function KisaviLanding(){
                 background:"#fff",display:"inline-block",borderRadius:16,
                 padding:"10px 16px",marginBottom:18
               }}>
-                <img src={IMG.logo} alt="Kisavi — Farm to Home" style={{height:64,width:"auto",display:"block"}}/>
+                <img src={IMG.logo1} alt="Kisavi — Farm to Home" style={{height:64,width:"auto",display:"block"}}/>
               </div>
             <h2 style={{fontSize:"clamp(28px,4vw,44px)",fontWeight:800,color:"#0f2d1e",marginBottom:16}}>
               Ready to join Kisavi?
@@ -626,7 +627,7 @@ export default function KisaviLanding(){
                 background:"#fff",display:"inline-block",borderRadius:16,
                 padding:"10px 16px",marginBottom:18
               }}>
-                <img src={IMG.logo} alt="Kisavi — Farm to Home" style={{height:56,width:"auto",display:"block"}}/>
+                <img src={IMG.logo1} alt="Kisavi — Farm to Home" style={{height:56,width:"auto",display:"block"}}/>
               </div>
               <p style={{color:"#8fb89e",fontSize:13,lineHeight:1.7,maxWidth:280,marginBottom:20}}>
                 Farm-to-home vegetable delivery connecting local farmers with families across Andhra Pradesh — no middlemen, just freshness.
