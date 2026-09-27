@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --brand:       #1a9e66;
-  --brand-dark:  #107d50;
-  --brand-light: #edfaf3;
+  --brand:       #1a7a52;
+  --brand-dark:  #0f2d1e;
+  --brand-light: #e8f5ee;
   --surface:     #ffffff;
   --bg:          #f8faf8;
-  --border:      #e4ede8;
-  --text:        #111a14;
+  --border:      #dcebe2;
+  --text:        #17251c;
   --muted:       #6b7f71;
   --amber:       #f59e0b;
   --red:         #ef4444;
@@ -24,6 +24,43 @@ body {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
+
+/* Shared Kisavi panel language */
+.panel-page {
+  background-color: #f7faf7;
+  background-image: radial-gradient(rgba(26,122,82,0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.panel-page .card,
+.panel-page .bg-white.rounded-2xl {
+  border-color: var(--border);
+  box-shadow: 0 8px 24px rgba(15,45,30,0.05);
+}
+.panel-header {
+  background: linear-gradient(135deg, #0f2d1e 0%, #1a7a52 68%, #2ea86e 100%);
+  box-shadow: 0 8px 24px rgba(15,45,30,0.16);
+}
+.panel-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #fff url('/images/logo-kisavi.jpeg') center 5% / 145% auto no-repeat;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+}
+.panel-tabs { box-shadow: 0 4px 18px rgba(15,45,30,0.05); }
+.panel-page .btn-brand {
+  background: linear-gradient(135deg, #1a7a52, #2ea86e);
+  box-shadow: 0 6px 16px rgba(26,122,82,0.2);
+}
+.panel-page .btn-brand:hover { background: linear-gradient(135deg, #0f2d1e, #1a7a52); }
+.panel-page .input { background: rgba(255,255,255,0.78); }
+.panel-page .input:focus { background: #fff; }
+.panel-sidebar {
+  background: linear-gradient(180deg, #0f2d1e 0%, #123c29 100%);
+  box-shadow: 8px 0 28px rgba(15,45,30,0.12);
+}
+.login-page { background: linear-gradient(135deg, #0f2d1e 0%, #1a7a52 55%, #e8f5ee 100%); }
 
 /* ── SCROLLBAR ─────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }

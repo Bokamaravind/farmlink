@@ -230,7 +230,7 @@ function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-brand-50 to-emerald-50 px-4">
+    <div className="login-page min-h-screen flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="text-6xl mb-3">🌾</div>
@@ -367,12 +367,12 @@ export default function FarmerPanel() {
   const settlementRequestOpen = now.getHours() >= 21
 
   return (
-    <div className="min-h-screen bg-gray-50 max-w-2xl mx-auto">
+    <div className="panel-page min-h-screen bg-gray-50 max-w-2xl mx-auto">
       {/* Header */}
-      <div className="bg-brand-700 text-white px-5 py-4 sticky top-0 z-40">
+      <div className="panel-header text-white px-5 py-4 sticky top-0 z-40">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-brand-300 text-xs">🌾 Kisavi Farmer</p>
+            <div className="flex items-center gap-2 mb-1"><span className="panel-logo"/><p className="text-white/70 text-xs">Kisavi Farmer</p></div>
             <h1 className="font-bold text-lg leading-tight">{farmer?.name}</h1>
             <p className="text-brand-300 text-xs font-mono">{session.user.farmerId} · {farmer?.region}</p>
           </div>
@@ -381,7 +381,7 @@ export default function FarmerPanel() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-gray-100 px-4 flex gap-0 sticky top-[76px] z-30">
+      <div className="panel-tabs bg-white border-b border-gray-100 px-4 flex gap-0 sticky top-[76px] z-30">
       {[['dashboard','📊 Dashboard'],['vegetables','🥦 Vegetables'],['orders','📦 Orders'],['profile','👤 Profile']].map(([id,label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 py-3.5 text-sm font-semibold transition-colors border-b-2 ${tab === id ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400'}`}>

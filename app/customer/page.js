@@ -482,15 +482,15 @@ function AuthScreen() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col max-w-md mx-auto">
-      <div className="bg-brand-600 text-white px-6 pt-16 pb-12 text-center relative overflow-hidden">
+    <div className="login-page min-h-screen flex flex-col max-w-md mx-auto">
+      <div className="panel-header text-white px-6 pt-16 pb-12 text-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           {['🌿', '🥬', '🍅', '🥕', '🫛'].map((e, i) => (
             <span key={i} className="absolute text-5xl" style={{ top: `${10 + i * 15}%`, left: `${5 + i * 18}%`, transform: `rotate(${i * 20 - 20}deg)` }}>{e}</span>
           ))}
         </div>
         <div className="relative">
-          <div className="text-6xl mb-3">🌱</div>
+          <div className="panel-logo w-16 h-16 mx-auto mb-3" />
           <h1 className="text-3xl font-bold mb-2">Kisavi</h1>
           <p className="text-brand-100 text-sm">Farm-fresh vegetables, direct to your door</p>
           <div className="flex justify-center gap-3 mt-4 flex-wrap">
@@ -1021,12 +1021,13 @@ export default function CustomerApp() {
   if (!isLoggedIn) return <AuthScreen />
 
   return (
-    <div className="min-h-screen bg-gray-50 max-w-md mx-auto relative">
+    <div className="panel-page min-h-screen bg-gray-50 max-w-md mx-auto relative">
       {/* HEADER */}
-      <div className="bg-brand-600 text-white px-4 pt-4 pb-3 sticky top-0 z-40 shadow-sm">
+      <div className="panel-header text-white px-4 pt-4 pb-3 sticky top-0 z-40 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-brand-200 text-xs">Delivering to</p>
+            <div className="flex items-center gap-2 mb-1"><span className="panel-logo"/><p className="text-white/70 text-xs">Kisavi fresh network</p></div>
+            <p className="text-white/70 text-xs">Delivering to</p>
             <div onClick={() => setTab('cart')} className="flex items-center gap-1 font-bold text-sm cursor-pointer">
               <span className="w-4 h-4"><PinIcon /></span>
               {locationStatus === 'ready' ? `${SERVICE_AREA_NAME} · within ${DELIVERY_RADIUS_KM} km` : 'Set delivery location'}

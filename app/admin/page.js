@@ -35,7 +35,7 @@ function LoginScreen() {
   const [user,setUser]=useState(''); const [pass,setPass]=useState(''); const [error,setError]=useState(''); const [loading,setLoading]=useState(false)
   async function handle(e){e.preventDefault();setError('');setLoading(true);const r=await signIn('admin',{username:user,password:pass,redirect:false});setLoading(false);if(r?.error)setError('Invalid credentials')}
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 px-4">
+    <div className="login-page min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8"><div className="text-5xl mb-3">🌿</div><h1 className="text-2xl font-bold text-white">Kisavi Admin</h1><p className="text-gray-400 text-sm mt-1">Platform management portal</p></div>
         <div className="bg-white rounded-2xl p-6 shadow-2xl">
@@ -309,11 +309,11 @@ export default function AdminPanel() {
   const pendingVerificationCount = (farmerVerificationRequests.filter(r=>r.status==='pending').length + deliveryVerificationRequests.filter(r=>r.status==='pending').length)
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="panel-page min-h-screen bg-gray-50">
       <div className="flex">
         {/* Sidebar */}
-        <aside className="hidden lg:flex flex-col w-56 bg-gray-900 min-h-screen fixed left-0 top-0">
-          <div className="p-5 border-b border-gray-700"><div className="text-xl font-bold text-white">🌿 Kisavi</div><div className="text-gray-400 text-xs mt-0.5">Admin Panel</div></div>
+        <aside className="panel-sidebar hidden lg:flex flex-col w-56 bg-gray-900 min-h-screen fixed left-0 top-0">
+          <div className="p-5 border-b border-white/10"><div className="flex items-center gap-3"><span className="panel-logo"/><div><div className="text-xl font-bold text-white">Kisavi</div><div className="text-white/50 text-xs mt-0.5">Admin Panel</div></div></div></div>
           <nav className="flex-1 p-3 space-y-1">
             {TABS.map(([id,icon,label])=>(
               <button key={id} onClick={()=>setTab(id)}
@@ -330,7 +330,7 @@ export default function AdminPanel() {
         {/* Main */}
         <div className="flex-1 lg:ml-56">
           {/* Topbar */}
-          <div className="bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between sticky top-0 z-40">
+          <div className="panel-tabs bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between sticky top-0 z-40">
             <div><h1 className="font-bold text-lg capitalize">{tab}</h1><p className="text-xs text-gray-400">Kisavi Admin</p></div>
             <div className="flex items-center gap-3">
               {farmers.length===0&&<button onClick={seedData} className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">🌱 Seed Demo Data</button>}

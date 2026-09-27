@@ -112,7 +112,7 @@ function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-orange-50 to-amber-50 px-4">
+    <div className="login-page min-h-screen flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="text-6xl mb-3">🛵</div>
@@ -274,12 +274,12 @@ export default function DeliveryPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 max-w-md mx-auto">
+    <div className="panel-page min-h-screen bg-gray-50 max-w-md mx-auto">
       {/* Header */}
-      <div className="bg-amber-500 text-white px-4 py-4 sticky top-0 z-40">
+      <div className="panel-header text-white px-4 py-4 sticky top-0 z-40">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-amber-200 text-xs">🛵 Kisavi Delivery</p>
+            <div className="flex items-center gap-2 mb-1"><span className="panel-logo"/><p className="text-white/70 text-xs">Kisavi Delivery</p></div>
             <h1 className="font-bold text-lg leading-tight">{partner?.name || session.user.name}</h1>
             <p className="text-amber-200 text-xs font-mono">{session.user.partnerId} · {partner?.region}</p>
           </div>
@@ -295,7 +295,7 @@ export default function DeliveryPanel() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-gray-100 px-4 flex sticky top-[76px] z-30">
+      <div className="panel-tabs bg-white border-b border-gray-100 px-4 flex sticky top-[76px] z-30">
         {[['dashboard','📊 Dashboard'],['orders','📦 My Orders'],['profile','👤 Profile']].map(([id,label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 py-3.5 text-sm font-semibold border-b-2 transition-colors ${tab===id ? 'border-amber-500 text-amber-600' : 'border-transparent text-gray-400'}`}>
