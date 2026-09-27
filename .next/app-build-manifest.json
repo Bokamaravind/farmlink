@@ -11,20 +11,15 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/verification/page": [
+    "/terms/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/verification/page.js"
+      "static/chunks/app/terms/page.js"
     ],
-    "/customer/page": [
+    "/_not-found/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/customer/page.js"
-    ],
-    "/verification/farmer/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/verification/farmer/page.js"
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }
