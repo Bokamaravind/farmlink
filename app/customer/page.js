@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { getVegEmoji, formatCurrency, calculateDeliveryFee, getFreeDeliveryMinimum, getInitials, STATUS_CONFIG, CENTER_LOCATION, DELIVERY_RADIUS_KM, SERVICE_AREA_NAME } from '@/lib/utils'
+import { useActionLock } from '@/components/ui'
 
 // ── ICONS ─────────────────────────────────────────────────────────
 const HomeIcon = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
@@ -457,6 +458,7 @@ function AuthScreen() {
   const [form, setForm] = useState({ name: '', email: '', password: '', phone: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const actionLock = useRef(false)
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
@@ -465,20 +467,52 @@ function AuthScreen() {
   }, [])
 
   async function doLogin(e) {
-    e.preventDefault(); setError(''); setLoading(true)
-    const res = await signIn('customer', { email: form.email, password: form.password, redirect: false })
-    setLoading(false)
-    if (res?.error) setError('Invalid email or password')
+    e.preventDefault()
+    if (actionLock.current) return
+    actionLock.current = true
+    setError(''); setLoading(true)
+    try {
+      const res = await signIn('customer', { email: form.email, password: form.password, redirect: false })
+      if (res?.error) setError('Invalid email or password')
+    } catch (_) {
+      setError('Unable to sign in. Please try again.')
+    } finally {
+      actionLock.current = false
+      setLoading(false)
+    }
   }
 
   async function doSignup(e) {
-    e.preventDefault(); setError(''); setLoading(true)
-    if (form.password.length < 6) { setError('Password must be at least 6 characters'); setLoading(false); return }
-    const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
-    const data = await res.json()
-    if (!res.ok) { setError(data.error || 'Signup failed'); setLoading(false); return }
-    await signIn('customer', { email: form.email, password: form.password, redirect: false })
-    setLoading(false)
+    e.preventDefault()
+    if (actionLock.current) return
+    actionLock.current = true
+    setError(''); setLoading(true)
+    try {
+      if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
+      const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Signup failed'); return }
+      await signIn('customer', { email: form.email, password: form.password, redirect: false })
+    } catch (_) {
+      setError('Unable to create your account. Please try again.')
+    } finally {
+      actionLock.current = false
+      setLoading(false)
+    }
+  }
+
+  async function doGoogleSignIn() {
+    if (actionLock.current) return
+    actionLock.current = true
+    setError(''); setLoading(true)
+    try {
+      await signIn('google', { callbackUrl: '/customer' })
+    } catch (_) {
+      setError('Unable to connect with Google. Please try again.')
+    } finally {
+      actionLock.current = false
+      setLoading(false)
+    }
   }
 
   return (
@@ -504,7 +538,7 @@ function AuthScreen() {
       <div className="flex-1 bg-white rounded-t-3xl -mt-4 px-6 pt-6 pb-10">
         <div className="flex bg-gray-100 rounded-2xl p-1 mb-6">
           {['login', 'signup'].map(t => (
-            <button key={t} onClick={() => { setTab(t); setError('') }}
+            <button key={t} disabled={loading} onClick={() => { setTab(t); setError('') }}
               className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${tab === t ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500'}`}>
               {t === 'login' ? 'Login' : 'Sign Up'}
             </button>
@@ -545,9 +579,9 @@ function AuthScreen() {
           <div className="flex-1 h-px bg-gray-100" />
         </div>
 
-        <button onClick={() => signIn('google', { callbackUrl: '/customer' })}
-          className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 rounded-xl py-3 font-semibold text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-          <GoogleIcon /> Continue with Google
+        <button onClick={doGoogleSignIn} disabled={loading}
+          className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 rounded-xl py-3 font-semibold text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-wait">
+          <GoogleIcon /> {loading ? 'Connecting…' : 'Continue with Google'}
         </button>
       </div>
     </div>
@@ -555,6 +589,7 @@ function AuthScreen() {
 }
 
 function CustomerProfile({ user, orders, onUpdate }) {
+  const { runAction, isPending } = useActionLock()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
@@ -643,8 +678,8 @@ function CustomerProfile({ user, orders, onUpdate }) {
               </div>
             )}
             {msg && <p className={`text-sm font-medium text-center ${msg.includes('✓') ? 'text-green-600' : 'text-red-500'}`}>{msg}</p>}
-            <button onClick={save} disabled={saving} className="btn-brand w-full">
-              {saving ? 'Saving...' : 'Save Changes'}
+            <button onClick={() => runAction('customer-profile-save', save)} disabled={saving || isPending('customer-profile-save')} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">
+              {saving || isPending('customer-profile-save') ? 'Processing…' : 'Save Changes'}
             </button>
           </div>
         ) : (
@@ -694,6 +729,12 @@ function CustomerProfile({ user, orders, onUpdate }) {
 
 // ── RAZORPAY PAYMENT HANDLER ──────────────────────────────────────
 async function initiatePayment({ order, user, amount = order.total, onSuccess, onFail }) {
+  let completed = false
+  const failOnce = message => {
+    if (completed) return
+    completed = true
+    onFail(message)
+  }
   try {
     // 1. Create Razorpay order on backend
     const res = await fetch('/api/payment', {
@@ -716,29 +757,34 @@ async function initiatePayment({ order, user, amount = order.total, onSuccess, o
         email: user.email,
         contact: user.phone || '',
       },
-      theme: { color: '#1a9e66' },
+      theme: { color: '#1a7a52' },
       handler: async (response) => {
-        // 3. Verify on backend
-        const verify = await fetch('/api/payment', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            razorpayOrderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
-            orderId: order.orderId,
-          }),
-        })
-        const result = await verify.json()
-        if (result.success) onSuccess(response.razorpay_payment_id)
-        else onFail('Payment verification failed')
+        try {
+          const verify = await fetch('/api/payment', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+              orderId: order.orderId,
+            }),
+          })
+          const result = await verify.json()
+          if (result.success && !completed) {
+            completed = true
+            onSuccess(response.razorpay_payment_id)
+          } else failOnce('Payment verification failed')
+        } catch (_) {
+          failOnce('verification failed')
+        }
       },
-      modal: { ondismiss: () => onFail('Payment cancelled') },
+      modal: { ondismiss: () => failOnce('Payment cancelled') },
     }
 
     const rzpInstance = new window.Razorpay(options)
     rzpInstance.open()
   } catch (err) {
-    onFail(err.message)
+    failOnce(err.message)
   }
 }
 
@@ -764,10 +810,12 @@ export default function CustomerApp() {
   const [savedAddresses, setSavedAddresses] = useState([])
   const [selectedAddressId, setSelectedAddressId] = useState('')
   const [savingAddress, setSavingAddress] = useState(false)
+  const savingAddressLock = useRef(false)
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [selectedSize, setSelectedSize] = useState('small')
   const [paymentMethod, setPaymentMethod] = useState('online')
   const [placing, setPlacing] = useState(false)
+  const placingLock = useRef(false)
   const [showFreeDelivery, setShowFreeDelivery] = useState(false)
 
   const isLoggedIn = status === 'authenticated' && session?.user?.role === 'customer'
@@ -912,30 +960,38 @@ export default function CustomerApp() {
   const total = subtotal + platformFee + deliveryFee
 
   async function saveCurrentAddress() {
+    if (savingAddressLock.current) return
     if (!addressFields.recipientName || !addressFields.flatHouse || !addressFields.street || !addressFields.area || !addressFields.city || !customerLocation) {
       addToast('Complete the address and select a map pin first', 'error')
       return
     }
+    savingAddressLock.current = true
     setSavingAddress(true)
-    const current = {
-      label: addressFields.landmark || addressFields.area || 'Address',
-      ...addressFields,
-      location: { lat: customerLocation.lat, lng: customerLocation.lng },
+    try {
+      const current = {
+        label: addressFields.landmark || addressFields.area || 'Address',
+        ...addressFields,
+        location: { lat: customerLocation.lat, lng: customerLocation.lng },
+      }
+      const nextAddresses = selectedAddressId
+        ? savedAddresses.map(address => address._id === selectedAddressId ? { ...current, _id: selectedAddressId } : address)
+        : [...savedAddresses, current]
+      const response = await fetch(`/api/customers/${user.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ savedAddresses: nextAddresses }),
+      })
+      const data = await response.json()
+      if (!response.ok) { addToast(data.error || 'Could not save address', 'error'); return }
+      setSavedAddresses(data.savedAddresses || nextAddresses)
+      const saved = (data.savedAddresses || nextAddresses).at(-1)
+      if (!selectedAddressId && saved?._id) setSelectedAddressId(saved._id)
+      addToast(selectedAddressId ? 'Address updated' : 'Address saved', 'success')
+    } catch (_) {
+      addToast('Could not save address. Please try again.', 'error')
+    } finally {
+      savingAddressLock.current = false
+      setSavingAddress(false)
     }
-    const nextAddresses = selectedAddressId
-      ? savedAddresses.map(address => address._id === selectedAddressId ? { ...current, _id: selectedAddressId } : address)
-      : [...savedAddresses, current]
-    const response = await fetch(`/api/customers/${user.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ savedAddresses: nextAddresses }),
-    })
-    const data = await response.json()
-    setSavingAddress(false)
-    if (!response.ok) { addToast(data.error || 'Could not save address', 'error'); return }
-    setSavedAddresses(data.savedAddresses || nextAddresses)
-    const saved = (data.savedAddresses || nextAddresses).at(-1)
-    if (!selectedAddressId && saved?._id) setSelectedAddressId(saved._id)
-    addToast(selectedAddressId ? 'Address updated' : 'Address saved', 'success')
   }
 
   function selectSavedAddress(addressId) {
@@ -969,10 +1025,12 @@ export default function CustomerApp() {
   }, [subtotal >= freeDeliveryMinimum, freeDeliveryMinimum])
 
   async function placeOrder() {
+    if (placingLock.current) return
    if (!isLoggedIn) { addToast('Please login first', 'error'); return }
   if (locationStatus !== 'ready') { addToast(`Allow current location to confirm ${SERVICE_AREA_NAME} delivery`, 'error'); return }
   if (subtotal < 150) { addToast(`Add ${formatCurrency(150 - subtotal)} more to reach the minimum order`, 'error'); return }
   if (!addressFields.recipientName || !addressFields.flatHouse || !addressFields.street || !addressFields.area || !addressFields.city) { addToast('Complete your delivery address first', 'error'); return }
+    placingLock.current = true
     setPlacing(true)
     try {
       const f = farmers.find(x => x.farmerId === cartFarmerId)
@@ -987,11 +1045,12 @@ export default function CustomerApp() {
         }),
       })
       const order = await res.json()
-      setPlacing(false)
       // Open Razorpay
       initiatePayment({
         order, user, amount: paymentMethod === 'cod' ? order.depositAmount : order.total,
         onSuccess: async (paymentId) => {
+          placingLock.current = false
+          setPlacing(false)
           addToast('Payment successful! Order confirmed 🎉', 'success')
           const paymentStatus = paymentMethod === 'cod' ? 'deposit_paid' : 'paid'
           setCart({}); setActiveOrder({ ...order, paymentStatus, status: 'confirmed' }); setActiveFarmer(f)
@@ -1000,12 +1059,15 @@ export default function CustomerApp() {
           fetch('/api/farmers').then(r => r.json()).then(data => setFarmers(data))
         },
         onFail: (msg) => {
+          placingLock.current = false
+          setPlacing(false)
           addToast(`Payment ${msg} — order saved, pay on delivery`, 'error')
           setCart({}); setActiveOrder(order); setActiveFarmer(f)
           setOrders(prev => [order, ...prev]); setTab('track')
         },
       })
     } catch (err) {
+      placingLock.current = false
       setPlacing(false); addToast('Order failed: ' + err.message, 'error')
     }
   }

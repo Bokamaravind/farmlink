@@ -2,7 +2,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { formatCurrency, getInitials, STATUS_CONFIG } from '@/lib/utils'
+import { useActionLock } from '@/components/ui'
 function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
+  const { runAction, isPending } = useActionLock()
   const [editing, setEditing] = useState(false)
   const [saving,  setSaving]  = useState(false)
   const [msg,     setMsg]     = useState('')
@@ -77,7 +79,7 @@ function DeliveryProfileEdit({ partner, partnerId, onSaved }) {
             <input className="input" type="password" placeholder="Min 6 characters" value={form.password} onChange={e => upd('password', e.target.value)}/>
           </div>
           {msg && <p className={`text-sm font-medium text-center ${msg.includes('✓') ? 'text-green-600' : 'text-red-500'}`}>{msg}</p>}
-          <button onClick={save} disabled={saving} className="btn-brand w-full">{saving ? 'Saving...' : 'Save Changes'}</button>
+          <button onClick={() => runAction('profile-save', save)} disabled={saving || isPending('profile-save')} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">{saving || isPending('profile-save') ? 'Processing…' : 'Save Changes'}</button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -147,6 +149,7 @@ function LoginScreen() {
 
 export default function DeliveryPanel() {
   const { data: session, status } = useSession()
+  const { runAction, isPending } = useActionLock()
   const [tab,       setTab]       = useState('dashboard')
   const [orders,    setOrders]    = useState([])
   const [partner,   setPartner]   = useState(null)
@@ -326,7 +329,7 @@ export default function DeliveryPanel() {
             </div>
             <div className="card p-4 border-amber-100 bg-amber-50 flex items-center justify-between gap-3">
               <div><p className="font-bold text-sm text-amber-800">Request settlement</p><p className="text-xs text-amber-700 mt-1">Available daily after 9:00 PM</p></div>
-              <button onClick={requestSettlement} disabled={!settlementRequestOpen || !pendingSettlement || partner?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-bold disabled:opacity-40">{partner?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
+              <button onClick={() => runAction('settlement', requestSettlement)} disabled={isPending('settlement') || !settlementRequestOpen || !pendingSettlement || partner?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-wait">{isPending('settlement') ? 'Processing…' : partner?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
             </div>
 
             {/* GPS status */}
@@ -367,9 +370,9 @@ export default function DeliveryPanel() {
                 </button>
                 {NEXT_STATUS[activeOrder.status] && (
                   <button
-                    onClick={() => updateStatus(activeOrder.orderId, NEXT_STATUS[activeOrder.status].next)}
-                    className="btn-brand w-full text-sm py-3">
-                    {NEXT_STATUS[activeOrder.status].label}
+                    onClick={() => runAction(`status-${activeOrder.orderId}`, () => updateStatus(activeOrder.orderId, NEXT_STATUS[activeOrder.status].next))}
+                    disabled={isPending(`status-${activeOrder.orderId}`)} className="btn-brand w-full text-sm py-3 disabled:opacity-50 disabled:cursor-wait">
+                    {isPending(`status-${activeOrder.orderId}`) ? 'Processing…' : NEXT_STATUS[activeOrder.status].label}
                   </button>
                 )}
               </div>
@@ -401,7 +404,7 @@ export default function DeliveryPanel() {
                     <span className={`badge badge-${sc?.color}`}>{sc?.label}</span>
                   </div>
                   <p className="font-bold text-sm">{o.customerName}</p>
-                  {!o.deliveryPartnerId && o.status === 'confirmed' && <button onClick={() => claimOrder(o.orderId)} className="w-full mb-2 py-2 bg-brand-600 text-white rounded-lg text-xs font-bold">Accept delivery</button>}
+                  {!o.deliveryPartnerId && o.status === 'confirmed' && <button onClick={() => runAction(`claim-${o.orderId}`, () => claimOrder(o.orderId))} disabled={isPending(`claim-${o.orderId}`)} className="w-full mb-2 py-2 bg-brand-600 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-wait">{isPending(`claim-${o.orderId}`) ? 'Processing…' : 'Accept delivery'}</button>}
                   <p className="text-xs text-gray-500 mt-0.5">🌾 Farm: {o.farmerName} · {o.farmerAddress || 'Address unavailable'}</p>
                   <p className="text-xs text-gray-400 mt-0.5 mb-1">📍 {o.address}</p>
                   <p className="text-xs text-gray-500 mb-2">{o.items?.map(i=>`${i.name} ×${i.qty}`).join(' · ')}</p>
@@ -417,9 +420,9 @@ export default function DeliveryPanel() {
                       Your earning: {formatCurrency(deliveryPayout(o))}
                     </span>
                     {ns && o.status !== 'delivered' && (
-                      <button onClick={() => updateStatus(o.orderId, ns.next)}
-                        className="text-xs font-bold px-3 py-1.5 bg-brand-600 text-white rounded-lg">
-                        {ns.label}
+                      <button onClick={() => runAction(`status-${o.orderId}`, () => updateStatus(o.orderId, ns.next))}
+                        disabled={isPending(`status-${o.orderId}`)} className="text-xs font-bold px-3 py-1.5 bg-brand-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-wait">
+                        {isPending(`status-${o.orderId}`) ? 'Processing…' : ns.label}
                       </button>
                     )}
                   </div>

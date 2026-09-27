@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { getVegEmoji, formatCurrency, getInitials, STATUS_CONFIG } from '@/lib/utils'
+import { useActionLock } from '@/components/ui'
 
 const UNITS = ['kg', 'bunch', 'piece', '250g', '500g']
 const FARMER_SIZES = [
@@ -36,6 +37,7 @@ function Toggle({ checked, onChange }) {
 }
 
 function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
+  const { runAction, isPending } = useActionLock()
   const [editing, setEditing] = useState(false)
   const [saving,  setSaving]  = useState(false)
   const [msg,     setMsg]     = useState('')
@@ -185,11 +187,11 @@ function FarmerProfileEdit({ farmer, farmerId, onSaved }) {
 
           {/* Save button */}
           <button
-            onClick={save}
-            disabled={saving}
-            className="btn-brand w-full disabled:opacity-50"
+            onClick={() => runAction('farmer-profile-save', save)}
+            disabled={saving || isPending('farmer-profile-save')}
+            className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait"
           >
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving || isPending('farmer-profile-save') ? 'Processing…' : 'Save Changes'}
           </button>
 
         </div>
@@ -266,6 +268,7 @@ function LoginScreen() {
 
 export default function FarmerPanel() {
   const { data: session, status } = useSession()
+  const { runAction, isPending } = useActionLock()
   const [tab, setTab]             = useState('dashboard')
   const [farmer, setFarmer]       = useState(null)
   const [orders, setOrders]       = useState([])
@@ -411,7 +414,7 @@ export default function FarmerPanel() {
             </div>
             <div className="card p-4 border-brand-100 bg-brand-50 flex items-center justify-between gap-3">
               <div><p className="font-bold text-sm text-brand-800">Request settlement</p><p className="text-xs text-brand-700 mt-1">Available daily after 9:00 PM</p></div>
-              <button onClick={requestSettlement} disabled={!settlementRequestOpen || !pendingSettlement || farmer?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold disabled:opacity-40">{farmer?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
+              <button onClick={() => runAction('settlement', requestSettlement)} disabled={isPending('settlement') || !settlementRequestOpen || !pendingSettlement || farmer?.settlementRequestStatus === 'requested'} className="px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-wait">{isPending('settlement') ? 'Processing…' : farmer?.settlementRequestStatus === 'requested' ? 'Requested' : settlementRequestOpen ? 'Request now' : 'After 9 PM'}</button>
             </div>
 
             <div className="card p-4">
@@ -460,13 +463,13 @@ export default function FarmerPanel() {
                       </div>
                       <p className="text-sm text-gray-500">{formatCurrency(veg.price)}/{veg.unit} · {veg.qty} {veg.unit} stock</p>
                     </div>
-                    <Toggle checked={veg.available} onChange={() => toggleAvail(veg)}/>
+                    <Toggle checked={veg.available} disabled={isPending(`availability-${veg._id}`)} onChange={() => runAction(`availability-${veg._id}`, () => toggleAvail(veg))}/>
                   </div>
                   <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                     <button onClick={() => { setEditVeg(veg); setForm({ name:veg.name, price:veg.price, unit:veg.unit, qty:veg.qty, available:veg.available }); setVegModal(true) }}
                       className="flex-1 py-2 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Edit</button>
-                    <button onClick={() => deleteVeg(veg._id)}
-                      className="flex-1 py-2 text-sm font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50 transition-colors">Delete</button>
+                    <button onClick={() => runAction(`delete-veg-${veg._id}`, () => deleteVeg(veg._id))} disabled={isPending(`delete-veg-${veg._id}`)}
+                      className="flex-1 py-2 text-sm font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-wait">{isPending(`delete-veg-${veg._id}`) ? 'Processing…' : 'Delete'}</button>
                   </div>
                 </div>
               ))}
@@ -539,8 +542,8 @@ export default function FarmerPanel() {
             <span className="font-medium text-sm">Available for sale</span>
             <Toggle checked={form.available} onChange={v => upd('available', v)}/>
           </div>
-          <button onClick={saveVeg} disabled={saving || !form.name || !form.price} className="btn-brand w-full disabled:opacity-50">
-            {saving ? 'Saving...' : editVeg ? 'Update Vegetable' : 'Add Vegetable'}
+          <button onClick={() => runAction('save-veg', saveVeg)} disabled={saving || isPending('save-veg') || !form.name || !form.price} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">
+            {saving || isPending('save-veg') ? 'Processing…' : editVeg ? 'Update Vegetable' : 'Add Vegetable'}
           </button>
         </div>
       </Modal>

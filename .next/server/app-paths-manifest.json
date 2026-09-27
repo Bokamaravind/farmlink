@@ -1,10 +1,8 @@
 {
-  "/page": "app/page.js",
-  "/terms/page": "app/terms/page.js",
+  "/api/orders/route": "app/api/orders/route.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
   "/customer/page": "app/customer/page.js",
   "/api/farmers/route": "app/api/farmers/route.js",
-  "/api/orders/route": "app/api/orders/route.js",
   "/api/customers/[id]/route": "app/api/customers/[id]/route.js",
   "/api/farmers/[id]/route": "app/api/farmers/[id]/route.js"
 }

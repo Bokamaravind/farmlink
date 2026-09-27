@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { formatCurrency, getInitials, STATUS_CONFIG } from '@/lib/utils'
+import { useActionLock } from '@/components/ui'
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null
@@ -33,7 +34,8 @@ function StatCard({ icon, label, value, sub, color='brand' }) {
 
 function LoginScreen() {
   const [user,setUser]=useState(''); const [pass,setPass]=useState(''); const [error,setError]=useState(''); const [loading,setLoading]=useState(false)
-  async function handle(e){e.preventDefault();setError('');setLoading(true);const r=await signIn('admin',{username:user,password:pass,redirect:false});setLoading(false);if(r?.error)setError('Invalid credentials')}
+  const actionLock=useRef(false)
+  async function handle(e){e.preventDefault();if(actionLock.current)return;actionLock.current=true;setError('');setLoading(true);try{const r=await signIn('admin',{username:user,password:pass,redirect:false});if(r?.error)setError('Invalid credentials')}catch(_){setError('Unable to sign in. Please try again.')}finally{actionLock.current=false;setLoading(false)}}
   return (
     <div className="login-page min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
@@ -110,6 +112,7 @@ const STATUS_OPTIONS = ['placed','confirmed','picked_up','on_the_way','delivered
 
 export default function AdminPanel() {
   const { data: session, status } = useSession()
+  const { runAction, isPending } = useActionLock()
   const [tab,setTab]             = useState('overview')
   const [farmers,setFarmers]     = useState([])
   const [orders,setOrders]       = useState([])
@@ -333,7 +336,7 @@ export default function AdminPanel() {
           <div className="panel-tabs bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between sticky top-0 z-40">
             <div><h1 className="font-bold text-lg capitalize">{tab}</h1><p className="text-xs text-gray-400">Kisavi Admin</p></div>
             <div className="flex items-center gap-3">
-              {farmers.length===0&&<button onClick={seedData} className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">🌱 Seed Demo Data</button>}
+              {farmers.length===0&&<button onClick={()=>runAction('seed',seedData)} disabled={isPending('seed')} className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200 disabled:opacity-50 disabled:cursor-wait">{isPending('seed')?'Processing…':'🌱 Seed Demo Data'}</button>}
               <a href="/verification/farmer" target="_blank" className="text-xs bg-brand-100 text-brand-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-200">+ New Farmer Request</a>
               <a href="/verification/delivery" target="_blank" className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-amber-200">+ New Delivery Request</a>
               <div className="flex lg:hidden gap-1">
@@ -428,11 +431,11 @@ export default function AdminPanel() {
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                           <button onClick={()=>{setEditFarmer(f);setFarmerForm({name:f.name,phone:f.phone,email:f.email||'',region:f.region,address:f.address||'',locationLat:f.location?.lat||'',locationLng:f.location?.lng||'',availableSizes:f.availableSizes||['small'],password:''});setEditFarmerModal(true)}}
                             className="flex-1 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Edit</button>
-                          <button onClick={()=>toggleFarmer(f)}
-                            className={`flex-1 py-2 text-xs font-semibold rounded-xl border ${f.active?'border-amber-200 text-amber-600 hover:bg-amber-50':'border-brand-200 text-brand-600 hover:bg-brand-50'}`}>
-                            {f.active?'Deactivate':'Activate'}
+                          <button onClick={()=>runAction(`toggle-farmer-${f.farmerId}`,()=>toggleFarmer(f))} disabled={isPending(`toggle-farmer-${f.farmerId}`)}
+                            className={`flex-1 py-2 text-xs font-semibold rounded-xl border disabled:opacity-50 disabled:cursor-wait ${f.active?'border-amber-200 text-amber-600 hover:bg-amber-50':'border-brand-200 text-brand-600 hover:bg-brand-50'}`}>
+                            {isPending(`toggle-farmer-${f.farmerId}`)?'Processing…':f.active?'Deactivate':'Activate'}
                           </button>
-                          <button onClick={()=>deleteFarmer(f)} className="flex-1 py-2 text-xs font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50">Delete</button>
+                          <button onClick={()=>runAction(`delete-farmer-${f.farmerId}`,()=>deleteFarmer(f))} disabled={isPending(`delete-farmer-${f.farmerId}`)} className="flex-1 py-2 text-xs font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait">{isPending(`delete-farmer-${f.farmerId}`)?'Processing…':'Delete'}</button>
                         </div>
                       </div>
                     ))}
@@ -465,7 +468,7 @@ export default function AdminPanel() {
                         </div>
                       </div>
                       <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                        <button onClick={()=>deletePartner(p)} className="flex-1 py-2 text-xs font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50">Delete</button>
+                        <button onClick={()=>runAction(`delete-partner-${p.partnerId}`,()=>deletePartner(p))} disabled={isPending(`delete-partner-${p.partnerId}`)} className="flex-1 py-2 text-xs font-semibold border border-red-200 text-red-500 rounded-xl hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait">{isPending(`delete-partner-${p.partnerId}`)?'Processing…':'Delete'}</button>
                       </div>
                     </div>
                   ))}
@@ -503,7 +506,7 @@ export default function AdminPanel() {
                             {req.status === 'approved' ? (
                               <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Approved</button>
                             ) : (
-                              <button onClick={() => approveFarmerRequest(req.requestId)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50">Approve</button>
+                              <button onClick={() => runAction(`approve-farmer-${req.requestId}`,()=>approveFarmerRequest(req.requestId))} disabled={isPending(`approve-farmer-${req.requestId}`)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-wait">{isPending(`approve-farmer-${req.requestId}`)?'Processing…':'Approve'}</button>
                             )}
                           </div>
                         </div>
@@ -537,7 +540,7 @@ export default function AdminPanel() {
                             {req.status === 'approved' ? (
                               <button disabled className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 bg-emerald-50">Approved</button>
                             ) : (
-                              <button onClick={() => approveDeliveryRequest(req.requestId)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50">Approve</button>
+                              <button onClick={() => runAction(`approve-delivery-${req.requestId}`,()=>approveDeliveryRequest(req.requestId))} disabled={isPending(`approve-delivery-${req.requestId}`)} className="flex-1 py-2 text-xs font-semibold border border-emerald-200 rounded-xl text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-wait">{isPending(`approve-delivery-${req.requestId}`)?'Processing…':'Approve'}</button>
                             )}
                           </div>
                         </div>
@@ -587,9 +590,9 @@ export default function AdminPanel() {
                               <p className="text-xs text-gray-400 mb-1">Assign delivery partner:</p>
                               <div className="flex gap-1.5 flex-wrap">
                                 {partners.filter(p=>p.active).map(p=>(
-                                  <button key={p._id} onClick={()=>assignDelivery(o.orderId,p)}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors ${o.deliveryPartnerName===p.name?'bg-brand-600 text-white border-brand-600':'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                                    🛵 {p.name}
+                                  <button key={p._id} onClick={()=>runAction(`assign-${o.orderId}`,()=>assignDelivery(o.orderId,p))} disabled={isPending(`assign-${o.orderId}`)}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-wait ${o.deliveryPartnerName===p.name?'bg-brand-600 text-white border-brand-600':'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                                    {isPending(`assign-${o.orderId}`)?'Processing…':`🛵 ${p.name}`}
                                   </button>
                                 ))}
                               </div>
@@ -599,9 +602,9 @@ export default function AdminPanel() {
                           {/* Status buttons */}
                           <div className="flex gap-1.5 flex-wrap pt-2 border-t border-gray-50">
                             {STATUS_OPTIONS.filter(s=>s!==o.status).map(s=>(
-                              <button key={s} onClick={()=>updateOrderStatus(o.orderId,s)}
-                                className={`px-2.5 py-1 text-[10px] font-semibold rounded-lg border badge-${STATUS_CONFIG[s]?.color} hover:opacity-80`}>
-                                → {STATUS_CONFIG[s]?.label}
+                              <button key={s} onClick={()=>runAction(`order-status-${o.orderId}`,()=>updateOrderStatus(o.orderId,s))} disabled={isPending(`order-status-${o.orderId}`)}
+                                className={`px-2.5 py-1 text-[10px] font-semibold rounded-lg border badge-${STATUS_CONFIG[s]?.color} hover:opacity-80 disabled:opacity-50 disabled:cursor-wait`}>
+                                {isPending(`order-status-${o.orderId}`)?'Processing…':`→ ${STATUS_CONFIG[s]?.label}`}
                               </button>
                             ))}
                           </div>
@@ -645,7 +648,7 @@ export default function AdminPanel() {
                           const farmerOrders = farmerSettlement(f)
                           const pending = farmerOrders.filter(o => o.farmerSettlementStatus !== 'settled')
                           const payout = pending.reduce((sum, o) => sum + (o.subtotal || 0) - (o.platformCommission || Math.round((o.subtotal || 0) * 0.05)), 0)
-                          return <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50 text-xs"><span className="text-gray-500">Pending settlement: <b>{formatCurrency(payout)}</b></span><button disabled={!pending.length || saving} onClick={() => settleOrders('farmer', pending.map(o => o.orderId))} className="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 font-semibold disabled:opacity-40">{pending.length ? 'Settle farmer' : 'Settled'}</button></div>
+                          return <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50 text-xs"><span className="text-gray-500">Pending settlement: <b>{formatCurrency(payout)}</b></span><button disabled={!pending.length || saving || isPending(`settle-farmer-${farmer.farmerId}`)} onClick={() => runAction(`settle-farmer-${farmer.farmerId}`, () => settleOrders('farmer', pending.map(o => o.orderId)))} className="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 font-semibold disabled:opacity-40 disabled:cursor-wait">{isPending(`settle-farmer-${farmer.farmerId}`)?'Processing…':pending.length ? 'Settle farmer' : 'Settled'}</button></div>
                         })()}
                       </div>
                     )
@@ -657,7 +660,7 @@ export default function AdminPanel() {
                     const partnerOrders = partnerSettlement(p)
                     const pending = partnerOrders.filter(o => o.deliverySettlementStatus !== 'settled')
                     const payout = pending.reduce((sum, o) => sum + (o.deliveryAgentFee || o.deliveryFee || 0), 0)
-                    return <div key={p._id} className="flex items-center justify-between gap-3 py-3 border-b border-gray-50 last:border-0"><div><p className="font-semibold text-sm">{p.name}</p><p className="text-xs text-gray-400">{p.partnerId} · Pending: {formatCurrency(payout)}</p></div><button disabled={!pending.length || saving} onClick={() => settleOrders('delivery', pending.map(o => o.orderId))} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-semibold text-xs disabled:opacity-40">{pending.length ? 'Settle agent' : 'Settled'}</button></div>
+                    return <div key={p._id} className="flex items-center justify-between gap-3 py-3 border-b border-gray-50 last:border-0"><div><p className="font-semibold text-sm">{p.name}</p><p className="text-xs text-gray-400">{p.partnerId} · Pending: {formatCurrency(payout)}</p></div><button disabled={!pending.length || saving || isPending(`settle-delivery-${p.partnerId}`)} onClick={() => runAction(`settle-delivery-${p.partnerId}`, () => settleOrders('delivery', pending.map(o => o.orderId)))} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-semibold text-xs disabled:opacity-40 disabled:cursor-wait">{isPending(`settle-delivery-${p.partnerId}`)?'Processing…':pending.length ? 'Settle agent' : 'Settled'}</button></div>
                   })}
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -708,7 +711,7 @@ export default function AdminPanel() {
   <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Farm longitude</label><input className="input" type="number" step="any" placeholder="83.2104" value={farmerForm.locationLng} onChange={e=>uf('locationLng',e.target.value)}/></div>
 </div>
           <div className="bg-brand-50 text-brand-700 text-xs px-3 py-2 rounded-xl">Unique Farmer ID (FL-XXX) will be auto-generated.</div>
-          <button onClick={addFarmer} disabled={saving||!farmerForm.name||!farmerForm.phone||!farmerForm.region||!farmerForm.password||!farmerForm.availableSizes.length} className="btn-brand w-full disabled:opacity-50">{saving?'Creating...':'Create Farmer'}</button>
+          <button onClick={()=>runAction('add-farmer',addFarmer)} disabled={saving||isPending('add-farmer')||!farmerForm.name||!farmerForm.phone||!farmerForm.region||!farmerForm.password||!farmerForm.availableSizes.length} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">{saving||isPending('add-farmer')?'Processing…':'Create Farmer'}</button>
         </div>
       </Modal>
 
@@ -729,7 +732,7 @@ export default function AdminPanel() {
             </div>
           </div>
           <div><label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">New Password (blank = keep current)</label><input className="input" type="text" placeholder="New password…" value={farmerForm.password} onChange={e=>uf('password',e.target.value)}/></div>
-          <button onClick={saveFarmer} disabled={saving} className="btn-brand w-full disabled:opacity-50">{saving?'Saving...':'Save Changes'}</button>
+          <button onClick={()=>runAction('save-farmer',saveFarmer)} disabled={saving||isPending('save-farmer')} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">{saving||isPending('save-farmer')?'Processing…':'Save Changes'}</button>
         </div>
       </Modal>
 
@@ -750,7 +753,7 @@ export default function AdminPanel() {
             </select>
           </div>
           <div className="bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-xl">Unique Partner ID (DL-XXX) will be auto-generated.</div>
-          <button onClick={addPartner} disabled={saving||!partnerForm.name||!partnerForm.phone||!partnerForm.password} className="btn-brand w-full disabled:opacity-50">{saving?'Creating...':'Create Partner'}</button>
+          <button onClick={()=>runAction('add-partner',addPartner)} disabled={saving||isPending('add-partner')||!partnerForm.name||!partnerForm.phone||!partnerForm.password} className="btn-brand w-full disabled:opacity-50 disabled:cursor-wait">{saving||isPending('add-partner')?'Processing…':'Create Partner'}</button>
         </div>
       </Modal>
 

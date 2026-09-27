@@ -21,11 +21,12 @@ export function Modal({ open, onClose, title, children }) {
 }
 
 // ── TOGGLE SWITCH ─────────────────────────────────────────────────
-export function Toggle({ checked, onChange }) {
+export function Toggle({ checked, onChange, disabled = false }) {
   return (
     <button
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative w-12 h-6 rounded-full transition-colors ${checked ? 'bg-brand-500' : 'bg-gray-300'}`}
+      className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 disabled:cursor-wait ${checked ? 'bg-brand-500' : 'bg-gray-300'}`}
     >
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${checked ? 'translate-x-6' : ''}`} />
     </button>
@@ -75,7 +76,30 @@ export function StatCard({ icon, label, value, sub, color = 'brand' }) {
 }
 
 // ── TOAST HOOK ────────────────────────────────────────────────────
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+
+export function useActionLock() {
+  const locks = useRef(new Set())
+  const [pending, setPending] = useState(new Set())
+
+  async function runAction(key, action) {
+    if (locks.current.has(key)) return
+    locks.current.add(key)
+    setPending(current => new Set(current).add(key))
+    try {
+      return await action()
+    } finally {
+      locks.current.delete(key)
+      setPending(current => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+
+  return { runAction, isPending: key => pending.has(key) }
+}
 
 export function useToast() {
   const [toasts, setToasts] = useState([])
